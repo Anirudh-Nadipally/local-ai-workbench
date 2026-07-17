@@ -1,0 +1,89 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background); --color-foreground: var(--foreground);
+  --color-card: var(--card); --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary); --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive); --color-border: var(--border);
+  --color-input: var(--input); --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar); --color-sidebar-foreground: var(--sidebar-foreground); --color-sidebar-border: var(--sidebar-border);
+  --font-sans: "Instrument Sans", var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Lora", var(--font-lora), ui-serif, Georgia, serif;
+  --font-mono: "IBM Plex Mono", var(--font-plex-mono), ui-monospace, monospace;
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 10px; --radius-xl: 12px;
+}
+
+:root {
+  --font-instrument: -apple-system, BlinkMacSystemFont; --font-lora: Georgia; --font-plex-mono: "SFMono-Regular", Menlo;
+  --background: oklch(0.975 0.012 79); --foreground: oklch(0.245 0.018 58);
+  --card: oklch(0.992 0.007 79); --card-foreground: oklch(0.245 0.018 58);
+  --popover: oklch(0.995 0.006 79); --popover-foreground: oklch(0.245 0.018 58);
+  --primary: oklch(0.39 0.055 49); --primary-foreground: oklch(0.98 0.01 78);
+  --secondary: oklch(0.945 0.017 74); --secondary-foreground: oklch(0.31 0.025 54);
+  --muted: oklch(0.947 0.012 75); --muted-foreground: oklch(0.505 0.025 57);
+  --accent: oklch(0.91 0.045 48); --accent-foreground: oklch(0.32 0.04 44);
+  --destructive: oklch(0.56 0.17 27); --border: oklch(0.865 0.018 72);
+  --input: oklch(0.84 0.02 72); --ring: oklch(0.57 0.105 46);
+  --sidebar: oklch(0.958 0.018 77); --sidebar-foreground: oklch(0.31 0.025 54); --sidebar-border: oklch(0.87 0.02 72);
+  --surface-glow: oklch(0.89 0.055 58 / 0.24);
+}
+
+.dark {
+  --background: oklch(0.21 0.012 58); --foreground: oklch(0.91 0.018 75);
+  --card: oklch(0.235 0.014 58); --card-foreground: oklch(0.91 0.018 75);
+  --popover: oklch(0.245 0.014 58); --popover-foreground: oklch(0.91 0.018 75);
+  --primary: oklch(0.82 0.045 66); --primary-foreground: oklch(0.22 0.015 58);
+  --secondary: oklch(0.285 0.014 57); --secondary-foreground: oklch(0.9 0.018 75);
+  --muted: oklch(0.27 0.012 58); --muted-foreground: oklch(0.69 0.024 70);
+  --accent: oklch(0.37 0.045 45); --accent-foreground: oklch(0.92 0.02 74);
+  --destructive: oklch(0.68 0.17 24); --border: oklch(0.39 0.015 59 / 0.65);
+  --input: oklch(0.43 0.018 58); --ring: oklch(0.69 0.08 53);
+  --sidebar: oklch(0.19 0.011 58); --sidebar-foreground: oklch(0.87 0.02 74); --sidebar-border: oklch(0.34 0.014 58);
+  --surface-glow: oklch(0.44 0.055 48 / 0.16);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/60; }
+  html { @apply font-sans; }
+  body { @apply bg-background text-foreground; text-rendering: optimizeLegibility; }
+  ::selection { background: color-mix(in oklab, var(--accent) 72%, transparent); }
+  button, a, input, textarea, select { @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background; }
+}
+
+@layer utilities {
+  .font-conversation { font-family: "Lora", var(--font-lora), ui-serif, Georgia, serif; }
+  .hairline { box-shadow: 0 0 0 1px color-mix(in oklab, var(--border) 78%, transparent); }
+  .paper-shadow { box-shadow: 0 18px 50px oklch(0.22 0.03 45 / 0.08); }
+  .brand-mark {
+    color: var(--primary-foreground);
+    background:
+      linear-gradient(145deg, color-mix(in oklab, var(--primary) 88%, white 12%), var(--primary));
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.16), 0 8px 24px oklch(0.22 0.05 45 / 0.14);
+  }
+  .workspace-surface {
+    background:
+      radial-gradient(circle at 50% -10%, var(--surface-glow), transparent 34rem),
+      color-mix(in oklab, var(--background) 92%, var(--card));
+  }
+  .composer-shell { transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+  .composer-shell:focus-within {
+    border-color: color-mix(in oklab, var(--ring) 45%, var(--border));
+    box-shadow: 0 22px 65px -30px oklch(0.18 0.04 45 / 0.56), 0 0 0 3px color-mix(in oklab, var(--ring) 10%, transparent);
+  }
+}
+
+@supports (scrollbar-color: auto) {
+  * { scrollbar-width: thin; scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent) transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

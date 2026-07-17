@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Local AI Workbench">
+  <rect width="64" height="64" rx="18" fill="#6f4939"/>
+  <path d="M20 16v25.5c0 4.7 3.8 8.5 8.5 8.5H46v-8H30V16h-10Z" fill="#f7eee2"/>
+  <circle cx="44" cy="20" r="5" fill="#dca47f"/>
+</svg>

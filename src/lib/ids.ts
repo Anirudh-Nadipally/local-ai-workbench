@@ -1,0 +1,4 @@
+import { randomUUID } from "node:crypto";
+
+export const createId = (prefix: string) => `${prefix}_${randomUUID()}`;
+export const nowIso = () => new Date().toISOString();
