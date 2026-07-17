@@ -4,6 +4,14 @@
   "private": true,
   "description": "An open-source, local-first Azure AI workspace for chat, files, reviewed memory, and bounded multi-model synthesis.",
   "license": "MIT",
+  "homepage": "https://github.com/Anirudh-Nadipally/local-ai-workbench#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Anirudh-Nadipally/local-ai-workbench.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Anirudh-Nadipally/local-ai-workbench/issues"
+  },
   "engines": {
     "node": ">=20.9"
   },
