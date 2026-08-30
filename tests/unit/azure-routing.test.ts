@@ -24,6 +24,10 @@ describe("Azure adapter routing", () => {
     ]);
   });
 
+  it("tries the Anthropic adapter first for Claude deployments", () => {
+    expect(inferAdapterCandidates("claude-sonnet", "Claude Sonnet", "auto")).toEqual(["anthropic"]);
+  });
+
   it("honors a manually selected adapter without fallback probing", () => {
     expect(inferAdapterCandidates("Kimi-K2.6", "Kimi-K2.6", "responses")).toEqual(["responses"]);
     expect(inferAdapterCandidates("DeepSeek-V4-Pro", null, "deepseek")).toEqual(["deepseek"]);
@@ -74,6 +78,41 @@ describe("Azure adapter routing", () => {
       "reasoning:chat:false",
       "reasoning:chat:true",
     ]);
+  });
+
+  it("keeps the initial Claude probe to generation and streaming", async () => {
+    const calls: string[] = [];
+    const driver: DeploymentProbeDriver = {
+      async generate(protocol) {
+        calls.push(`generate:${protocol}`);
+        return { text: "OK" };
+      },
+      async stream(protocol) {
+        calls.push(`stream:${protocol}`);
+        return { text: "STREAM_OK", hadDelta: true };
+      },
+      async structured(protocol) {
+        calls.push(`structured:${protocol}`);
+        return true;
+      },
+      async reasoning(protocol, withEffort) {
+        calls.push(`reasoning:${protocol}:${withEffort}`);
+        return { reasoning: true };
+      },
+    };
+
+    const result = await probeAzureDeployment("claude-sonnet", "anthropic", "Claude Sonnet", driver);
+
+    expect(calls).toEqual(["generate:anthropic", "stream:anthropic"]);
+    expect(result.capabilities).toMatchObject({
+      textGeneration: true,
+      streaming: true,
+      structuredOutput: false,
+      reasoning: true,
+      reasoningEffort: true,
+      imageInput: true,
+      adapter: "anthropic",
+    });
   });
 
   it("reports every attempted adapter when no protocol works", async () => {

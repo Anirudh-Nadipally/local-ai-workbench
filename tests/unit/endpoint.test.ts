@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertLocalRequest, detectEndpointKind, getAzureBaseUrl, normalizeEndpoint } from "@/lib/endpoint";
+import { assertLocalRequest, detectEndpointKind, getAzureAnthropicBaseUrl, getAzureBaseUrl, normalizeEndpoint } from "@/lib/endpoint";
 
 describe("Azure endpoint handling", () => {
   it("detects both endpoint families", () => {
@@ -21,6 +21,10 @@ describe("Azure endpoint handling", () => {
       "https://example-resource.openai.azure.com/openai/v1",
       "azure-openai",
     )).toBe("https://example-resource.openai.azure.com/openai");
+    expect(getAzureAnthropicBaseUrl(
+      "https://example-resource.services.ai.azure.com/api/projects/example-project",
+      "foundry-project",
+    )).toBe("https://example-resource.services.ai.azure.com/anthropic/v1");
   });
   it("rejects insecure endpoints and non-local requests", () => {
     expect(() => normalizeEndpoint("http://demo.openai.azure.com")).toThrow(/HTTPS/);
@@ -28,6 +32,7 @@ describe("Azure endpoint handling", () => {
     expect(() => detectEndpointKind("https://evil.example/openai/v1")).toThrow(/does not look/i);
     expect(() => detectEndpointKind("https://evil.example/api/projects/example")).toThrow(/does not look/i);
     expect(() => detectEndpointKind("https://demo.services.ai.azure.com")).toThrow(/api\/projects/i);
+    expect(() => getAzureAnthropicBaseUrl("https://demo.openai.azure.com", "azure-openai")).toThrow(/Foundry services\.ai\.azure\.com/);
     expect(() => assertLocalRequest(new Request("http://192.168.1.5:3000/api/setup"), true)).toThrow(/Local/);
     expect(() => assertLocalRequest(new Request("http://127.0.0.1:3000/api/setup", { headers: { origin: "https://evil.example" } }), true)).toThrow(/Cross-origin/);
     expect(() => assertLocalRequest(new Request("http://127.0.0.1:3000/api/setup", { headers: { origin: "https://127.0.0.1:3000" } }), true)).toThrow(/Cross-origin/);

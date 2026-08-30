@@ -17,6 +17,22 @@ function deployment(partial: Partial<DeploymentRecord> & Pick<DeploymentRecord, 
 }
 
 describe("reasoning provider options", () => {
+  it("marks Claude requests for short-lived prompt caching and explicitly disables thinking when requested", () => {
+    expect(reasoningProviderOptions(deployment({
+      name: "claude-sonnet-5",
+      protocol: "anthropic",
+      capabilities: { reasoningEffort: false },
+    }), "none")).toEqual({
+      anthropic: { cacheControl: { type: "ephemeral" }, thinking: { type: "disabled" } },
+    });
+  });
+
+  it("enables adaptive Claude thinking at the selected effort", () => {
+    expect(reasoningProviderOptions(deployment({ name: "claude-sonnet-5", protocol: "anthropic" }), "medium")).toEqual({
+      anthropic: { cacheControl: { type: "ephemeral" }, thinking: { type: "adaptive", display: "summarized" }, effort: "medium" },
+    });
+  });
+
   it("skips reasoning effort for Flash-tier deployments", () => {
     expect(reasoningProviderOptions(deployment({ name: "DeepSeek-V4-Flash" }), "medium")).toBeUndefined();
   });

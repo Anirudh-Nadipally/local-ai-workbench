@@ -5,10 +5,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("secret encryption and redaction", () => {
   const original = process.env.WORKBENCH_DATA_DIR;
-  afterEach(() => { process.env.WORKBENCH_DATA_DIR = original; vi.resetModules(); });
+  const originalAzureAiKey = process.env.AZURE_AI_API_KEY;
+  const originalAzureOpenAiKey = process.env.AZURE_OPENAI_API_KEY;
+  afterEach(() => {
+    process.env.WORKBENCH_DATA_DIR = original;
+    if (originalAzureAiKey === undefined) delete process.env.AZURE_AI_API_KEY; else process.env.AZURE_AI_API_KEY = originalAzureAiKey;
+    if (originalAzureOpenAiKey === undefined) delete process.env.AZURE_OPENAI_API_KEY; else process.env.AZURE_OPENAI_API_KEY = originalAzureOpenAiKey;
+    vi.resetModules();
+  });
   it("stores authenticated ciphertext and redacts the live key", async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "workbench-secret-"));
     process.env.WORKBENCH_DATA_DIR = directory;
+    delete process.env.AZURE_AI_API_KEY;
+    delete process.env.AZURE_OPENAI_API_KEY;
     vi.resetModules();
     const config = await import("@/lib/config");
     config.writeApiKey("not-a-real-key-1234");

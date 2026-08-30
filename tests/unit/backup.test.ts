@@ -5,6 +5,8 @@ import JSZip from "jszip";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 describe("backup and restore trust boundary", () => {
+  const originalAzureAiKey = process.env.AZURE_AI_API_KEY;
+  const originalAzureOpenAiKey = process.env.AZURE_OPENAI_API_KEY;
   let directory = "";
   let backup: typeof import("@/lib/backup");
   let config: typeof import("@/lib/config");
@@ -14,6 +16,8 @@ describe("backup and restore trust boundary", () => {
   beforeAll(async () => {
     directory = await fs.mkdtemp(path.join(os.tmpdir(), "workbench-backup-"));
     process.env.WORKBENCH_DATA_DIR = directory;
+    delete process.env.AZURE_AI_API_KEY;
+    delete process.env.AZURE_OPENAI_API_KEY;
     vi.resetModules();
     config = await import("@/lib/config");
     repository = await import("@/lib/repository");
@@ -22,6 +26,8 @@ describe("backup and restore trust boundary", () => {
   });
 
   afterAll(async () => {
+    if (originalAzureAiKey === undefined) delete process.env.AZURE_AI_API_KEY; else process.env.AZURE_AI_API_KEY = originalAzureAiKey;
+    if (originalAzureOpenAiKey === undefined) delete process.env.AZURE_OPENAI_API_KEY; else process.env.AZURE_OPENAI_API_KEY = originalAzureOpenAiKey;
     await fs.rm(directory, { recursive: true, force: true });
   });
 

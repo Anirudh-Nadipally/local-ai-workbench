@@ -30,6 +30,10 @@ describe("SQLite FTS, duplicate protection, and run transitions", () => {
       { content: "SQLite stores canonical local history.", section: "Persistence", tokenEstimate: 9 },
     ]);
     expect(repository.searchFileChunks([first.file.id], "terracotta accent", 12)[0].content).toContain("Terracotta");
+    expect(repository.searchFileChunks([first.file.id], "generic question with no matching source terms", 12).map((chunk) => chunk.content)).toEqual([
+      "Terracotta is the restrained accent color.",
+      "SQLite stores canonical local history.",
+    ]);
   });
 
   it("persists bounded synthesis state transitions", () => {
@@ -233,6 +237,23 @@ describe("SQLite FTS, duplicate protection, and run transitions", () => {
     expect(repository.updateThread(thread.id, { deploymentId: null })?.deploymentId).toBeNull();
   });
 
+  it("moves multiple conversations to recoverable trash and restores them", () => {
+    const project = repository.createProject("Recoverable trash");
+    const first = repository.createThread(project.id, "First");
+    const second = repository.createThread(project.id, "Second");
+    const retained = repository.createThread(project.id, "Retained");
+    repository.saveMessage({ threadId: first.id, role: "user", content: "Still recoverable" });
+
+    expect(repository.setThreadsTrashed([first.id, second.id], project.id, true)).toBe(2);
+    expect(repository.listThreads(project.id).map((thread) => thread.id)).toEqual([retained.id]);
+    expect(repository.listTrashedThreads(project.id).map((thread) => thread.id).sort()).toEqual([first.id, second.id].sort());
+    expect(repository.listMessages(first.id)[0]?.content).toBe("Still recoverable");
+
+    expect(repository.setThreadsTrashed([first.id], project.id, false)).toBe(1);
+    expect(repository.listThreads(project.id).some((thread) => thread.id === first.id)).toBe(true);
+    expect(repository.listTrashedThreads(project.id).map((thread) => thread.id)).toEqual([second.id]);
+  });
+
   it("deduplicates active synthesis jobs and cancels them with their run", () => {
     const project = repository.createProject("Job coordination");
     const thread = repository.createThread(project.id);
@@ -282,6 +303,130 @@ describe("SQLite FTS, duplicate protection, and run transitions", () => {
     repository.saveMessage({ id: "shared-message-id", threadId: firstThread.id, role: "user", content: "Original" });
     expect(() => repository.saveMessage({ id: "shared-message-id", threadId: secondThread.id, role: "user", content: "Overwrite" })).toThrow(/another conversation/i);
     expect(repository.getMessage("shared-message-id")?.content).toBe("Original");
+  });
+
+  it("creates immutable conversation branches and retains copied generation receipts", async () => {
+    const project = repository.createProject("Conversation branches");
+    const source = repository.createThread(project.id, "Pricing decision", "claude-sonnet-5");
+    const first = repository.saveMessage({ id: "branch-question-1", threadId: source.id, role: "user", content: "Compare the options" });
+    const answer = repository.saveMessage({ id: "branch-answer-1", threadId: source.id, role: "assistant", content: "Option A is safer" });
+    const second = repository.saveMessage({ id: "branch-question-2", threadId: source.id, role: "user", content: "What about cost?" });
+    const { getSqlite } = await import("@/lib/db");
+    getSqlite().prepare(`INSERT INTO generations
+      (id,message_id,thread_id,deployment_id,status,stage,settings_json,cache_read_tokens,thinking_tokens,duration_ms,provider_metadata_json,output_text,started_at,completed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        "branch-generation", answer.id, source.id, "claude-sonnet-5", "complete", "response", JSON.stringify({ reasoningEffort: "medium" }),
+        1_900, 420, 2_800, "{}", answer.content, "2026-08-21T08:00:00.000Z", "2026-08-21T08:00:02.800Z",
+      );
+    getSqlite().prepare(`INSERT INTO generations
+      (id,message_id,thread_id,deployment_id,status,stage,settings_json,provider_metadata_json,output_text,started_at,completed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+        "branch-preparation", null, source.id, "DeepSeek-V4-Flash", "complete", "attachment-preparation", JSON.stringify({ parentGenerationId: "branch-generation", fileName: "costs.json" }),
+        "{}", "Prepared costs", "2026-08-21T07:59:58.000Z", "2026-08-21T08:00:00.000Z",
+      );
+
+    const branch = repository.branchThread({ sourceThreadId: source.id, throughMessageId: answer.id });
+    expect(branch.parentThreadId).toBe(source.id);
+    expect(branch.branchFromMessageId).toBe(answer.id);
+    expect(repository.listMessages(source.id).map((message) => message.id)).toEqual([first.id, answer.id, second.id]);
+    expect(repository.listMessages(branch.id).map((message) => message.content)).toEqual([first.content, answer.content]);
+    const copiedGenerations = repository.listGenerations(branch.id);
+    const copiedResponse = copiedGenerations.find((generation) => generation.stage === "response")!;
+    const copiedPreparation = copiedGenerations.find((generation) => generation.stage === "attachment-preparation")!;
+    expect(copiedResponse.cacheReadTokens).toBe(1_900);
+    expect(copiedResponse.thinkingTokens).toBe(420);
+    expect(copiedPreparation.settings.parentGenerationId).toBe(copiedResponse.id);
+
+    const editBranch = repository.branchThread({ sourceThreadId: source.id, throughMessageId: second.id, includeMessage: false });
+    expect(repository.listMessages(editBranch.id).map((message) => message.content)).toEqual([first.content, answer.content]);
+    expect(repository.getMessage(second.id)?.content).toBe("What about cost?");
+  });
+
+  it("edits a user turn in place and removes only the later timeline", async () => {
+    const project = repository.createProject("Editable conversation");
+    const thread = repository.createThread(project.id, "Plan review");
+    const first = repository.saveMessage({ id: "edit-question-1", threadId: thread.id, role: "user", content: "Compare the plans" });
+    const firstAnswer = repository.saveMessage({ id: "edit-answer-1", threadId: thread.id, role: "assistant", content: "Plan A is safer" });
+    repository.saveMessage({ id: "edit-question-2", threadId: thread.id, role: "user", content: "What about price?" });
+    repository.saveMessage({ id: "edit-answer-2", threadId: thread.id, role: "assistant", content: "Plan B is cheaper" });
+    const { getSqlite } = await import("@/lib/db");
+    getSqlite().prepare(`INSERT INTO context_receipts
+      (id,thread_id,memory_ids_json,file_chunk_ids_json,estimated_tokens,rendered_context,created_at)
+      VALUES (?,?,?,?,?,?,?)`).run("edit-receipt", thread.id, "[]", "[]", 12, "stale context", firstAnswer.createdAt);
+    getSqlite().prepare(`INSERT INTO generations
+      (id,message_id,thread_id,deployment_id,status,stage,settings_json,provider_metadata_json,output_text,context_receipt_id,started_at,completed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        "edit-generation", firstAnswer.id, thread.id, "claude-sonnet-5", "complete", "response", "{}", "{}", firstAnswer.content,
+        "edit-receipt", firstAnswer.createdAt, firstAnswer.createdAt,
+      );
+
+    const edited = repository.editUserMessageAndTruncate({
+      threadId: thread.id,
+      messageId: first.id,
+      content: "Compare total cost and risk",
+      attachments: [],
+    });
+
+    expect(edited.id).toBe(first.id);
+    expect(repository.listMessages(thread.id).map((message) => message.content)).toEqual(["Compare total cost and risk"]);
+    expect(repository.listGenerations(thread.id)).toHaveLength(0);
+    expect(repository.getLatestReceipt(thread.id)).toBeUndefined();
+    expect(repository.listThreads(project.id)).toHaveLength(1);
+  });
+
+  it("persists the exact attachments on the user message", () => {
+    const project = repository.createProject("Message attachments");
+    const thread = repository.createThread(project.id);
+    const attachments = [{
+      fileId: "file-json",
+      originalName: "azure-cost-analysis.json",
+      mimeType: "application/json",
+      sizeBytes: 354_489,
+      mode: "prepare-text" as const,
+      preparationDeployment: "DeepSeek-V4-Flash",
+    }];
+    const message = repository.saveMessage({ id: "message-with-file", threadId: thread.id, role: "user", content: "Analyze this", attachments });
+    expect(message.attachments).toEqual(attachments);
+    expect(repository.listMessages(thread.id)[0].attachments).toEqual(attachments);
+
+    repository.saveMessage({ id: message.id, threadId: thread.id, role: "user", content: "Analyze this carefully" });
+    expect(repository.getMessage(message.id)?.attachments).toEqual(attachments);
+  });
+
+  it("conservatively backfills attachments from an old generation receipt", async () => {
+    const project = repository.createProject("Historical attachments");
+    const thread = repository.createThread(project.id);
+    const file = repository.createFile({
+      projectId: project.id,
+      threadId: thread.id,
+      originalName: "historical.json",
+      storedName: "historical.json",
+      mimeType: "application/json",
+      sizeBytes: 1_300,
+      sha256: "historical-attachment-hash",
+    }).file;
+    const message = repository.saveMessage({ id: "historical-question", threadId: thread.id, role: "user", content: "Can you see it?" });
+    const { getSqlite, migrate } = await import("@/lib/db");
+    getSqlite().prepare(`INSERT INTO generations (id,thread_id,deployment_id,status,stage,settings_json,started_at)
+      VALUES (?,?,?,?,?,?,?)`).run("historical-generation", thread.id, "claude-sonnet-5", "complete", "response", JSON.stringify({ attachments: [{ fileId: file.id, mode: "direct" }] }), "9999-01-01T00:00:00.000Z");
+
+    migrate(getSqlite());
+    expect(repository.getMessage(message.id)?.attachments).toEqual([{
+      fileId: file.id,
+      originalName: "historical.json",
+      mimeType: "application/json",
+      sizeBytes: 1_300,
+      mode: "direct",
+    }]);
+  });
+
+  it("persists inspectable preparation packet text", async () => {
+    const project = repository.createProject("Inspectable preparation");
+    const thread = repository.createThread(project.id);
+    const { getSqlite } = await import("@/lib/db");
+    getSqlite().prepare(`INSERT INTO generations (id,thread_id,deployment_id,status,stage,settings_json,output_text,started_at)
+      VALUES (?,?,?,?,?,?,?,?)`).run("packet-generation", thread.id, "DeepSeek-V4-Flash", "complete", "attachment-preparation", "{}", "## Current state\nThe decision is still open.", "2026-08-20T12:00:00.000Z");
+    expect(repository.listGenerations(thread.id)[0].outputText).toContain("decision is still open");
   });
 
   it("accepts a memory candidate only once", () => {
