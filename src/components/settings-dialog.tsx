@@ -9,6 +9,7 @@ import {
   FileText,
   KeyRound,
   Loader2,
+  MoreHorizontal,
   Moon,
   Network,
   Pencil,
@@ -31,12 +32,21 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DeploymentProtocol, DeploymentRecord, SafeConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { supportsNativeVisualInput } from "@/lib/attachments";
 
 type AdapterChoice = DeploymentProtocol | "auto";
+export type AnswerTextSize = "compact" | "comfortable" | "large";
 type ExtendedConfig = SafeConfig & Partial<{
   mapperDeployment: string;
   alternativeDeployment: string;
@@ -90,6 +100,8 @@ export function SettingsDialog({
   config,
   deployments,
   routing,
+  answerTextSize,
+  onAnswerTextSizeChange,
   onRefresh,
 }: {
   open: boolean;
@@ -97,6 +109,8 @@ export function SettingsDialog({
   config: SafeConfig;
   deployments: DeploymentRecord[];
   routing?: { adjustments?: Array<{ role: string; requestedDeployment: string; deployment: string; reason: string }>; error?: string };
+  answerTextSize: AnswerTextSize;
+  onAnswerTextSizeChange: (size: AnswerTextSize) => void;
   onRefresh: () => Promise<void>;
 }) {
   const { theme, setTheme } = useTheme();
@@ -212,31 +226,31 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="grid max-h-[92dvh] min-h-0 w-[calc(100vw-2rem)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-2xl p-0 shadow-2xl duration-200 sm:max-h-[calc(100dvh-2rem)] sm:w-[760px] sm:max-w-[760px]">
-        <DialogHeader className="min-w-0 border-b px-6 py-5 pr-14">
-          <DialogTitle className="text-lg">Settings</DialogTitle>
-          <DialogDescription>Models, role routing, appearance, and local data.</DialogDescription>
+      <DialogContent className="grid max-h-[84dvh] min-h-0 w-[calc(100vw-1.5rem)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-2xl p-0 shadow-2xl duration-200 sm:w-[720px] sm:max-w-[720px]">
+        <DialogHeader className="min-w-0 border-b px-5 py-3.5 pr-12">
+          <DialogTitle className="text-base">Settings</DialogTitle>
+          <DialogDescription className="text-xs">Models, routing, appearance, and local data.</DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="models" className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
-          <TabsList className="mx-4 mt-4 grid grid-cols-4 sm:mx-6">
-            <TabsTrigger value="models">Models</TabsTrigger>
-            <TabsTrigger value="routing">Routing</TabsTrigger>
-            <TabsTrigger value="appearance">Appearance</TabsTrigger>
-            <TabsTrigger value="data">Data</TabsTrigger>
+        <Tabs defaultValue="models" className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-0 sm:grid-cols-[138px_minmax(0,1fr)] sm:grid-rows-[minmax(0,1fr)]">
+          <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4 sm:m-0 sm:flex sm:h-full sm:w-full sm:flex-col sm:items-stretch sm:justify-start sm:rounded-none sm:border-r sm:bg-muted/15 sm:p-2.5">
+            <TabsTrigger value="models" className="sm:h-9 sm:flex-none sm:justify-start sm:px-2.5 sm:after:hidden"><Activity /> Models</TabsTrigger>
+            <TabsTrigger value="routing" className="sm:h-9 sm:flex-none sm:justify-start sm:px-2.5 sm:after:hidden"><Network /> Routing</TabsTrigger>
+            <TabsTrigger value="appearance" className="sm:h-9 sm:flex-none sm:justify-start sm:px-2.5 sm:after:hidden"><Sun /> Appearance</TabsTrigger>
+            <TabsTrigger value="data" className="sm:h-9 sm:flex-none sm:justify-start sm:px-2.5 sm:after:hidden"><FileText /> Data</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="models" className="min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-0 pt-4 sm:px-6">
-            <section className="min-w-0 space-y-4">
-              <div className="min-w-0 rounded-2xl border border-border/75 bg-muted/25 p-4">
+          <TabsContent value="models" className="min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-3 pb-0 pt-3 sm:px-4">
+            <section className="min-w-0 space-y-3">
+              <div className="min-w-0 rounded-xl border border-border/70 bg-muted/20 p-3">
                 <div className="flex min-w-0 items-start gap-3">
-                  <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-700/8 text-emerald-700 dark:text-emerald-400"><ShieldCheck className="size-4" /></div>
+                  <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-emerald-700/8 text-emerald-700 dark:text-emerald-400"><ShieldCheck className="size-4" /></div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-medium">Azure connection</p><Badge variant="secondary" className="text-[9px]">CONNECTED</Badge></div>
-                    <p className="mt-1 break-all font-mono text-[10px] leading-5 text-muted-foreground">{config.endpoint}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{config.endpointKind === "foundry-project" ? "Foundry project" : "Azure OpenAI"} · credential encrypted locally</p>
+                    <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground" title={config.endpoint}>{config.endpoint}</p>
+                    <p className="mt-1 text-[10px] text-muted-foreground">{config.endpointKind === "foundry-project" ? "Foundry project" : "Azure OpenAI"} · encrypted locally</p>
                   </div>
-                  <Button type="button" size="sm" variant="ghost" className="shrink-0" onClick={() => setShowConnection((value) => !value)}><Pencil /> Edit</Button>
+                  <Button type="button" size="icon-sm" variant="ghost" className="shrink-0" onClick={() => setShowConnection((value) => !value)} aria-label="Edit Azure connection"><Pencil /></Button>
                 </div>
                 {showConnection && (
                   <form onSubmit={saveConnection} className="mt-4 grid gap-3 border-t pt-4">
@@ -256,10 +270,10 @@ export function SettingsDialog({
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
                 <div>
                   <h3 className="text-sm font-medium">Deployment registry</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">Register deployments that already exist in Azure.</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">Your Azure deployments and verified capabilities.</p>
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button type="button" size="sm" variant="outline" onClick={syncDeployments} disabled={syncing}>
@@ -290,6 +304,7 @@ export function SettingsDialog({
                         <SelectItem value="responses">Responses</SelectItem>
                         <SelectItem value="chat">Chat Completions</SelectItem>
                         <SelectItem value="deepseek">DeepSeek chat</SelectItem>
+                        <SelectItem value="anthropic">Anthropic / Claude</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -318,11 +333,11 @@ export function SettingsDialog({
             </section>
           </TabsContent>
 
-          <TabsContent value="routing" className="min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-0 pt-4 sm:px-6">
-            <section className="min-w-0 space-y-5">
-              <div className="flex items-start gap-3 rounded-2xl border border-border/75 bg-muted/25 p-4">
-                <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent/70"><Network className="size-4" /></div>
-                <div><h3 className="text-sm font-medium">Model role routing</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">Choose a deployment for ordinary chat and each bounded synthesis lane. Every run records an immutable routing receipt.</p></div>
+          <TabsContent value="routing" className="min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-3 pb-0 pt-3 sm:px-4">
+            <section className="min-w-0 space-y-3">
+              <div className="px-0.5">
+                <h3 className="text-sm font-medium">Model role routing</h3>
+                <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">Choose the model used for chat and each specialist pass.</p>
               </div>
               {routing?.error && <p className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">{routing.error}</p>}
               {!!routing?.adjustments?.length && (
@@ -332,7 +347,7 @@ export function SettingsDialog({
                   ))}
                 </div>
               )}
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="divide-y overflow-hidden rounded-xl border border-border/70">
                 {ROLE_ROWS.map((role) => {
                   const selectedDeployment = deployments.find((item) => item.name === roles[role.key]);
                   const roleDeployments = selectedDeployment && !enabledDeployments.some((item) => item.id === selectedDeployment.id)
@@ -340,13 +355,13 @@ export function SettingsDialog({
                     : enabledDeployments;
 
                   return (
-                    <div key={role.key} className="min-w-0 rounded-xl border border-border/70 bg-card/60 p-3">
-                      <div className="mb-2 min-w-0">
+                    <div key={role.key} className="flex min-w-0 items-center gap-3 bg-card/40 px-3 py-2">
+                      <div className="min-w-0 flex-1">
                         <Label className="text-xs">{role.label}</Label>
                         <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{role.hint}</p>
                       </div>
                       <Select value={roles[role.key]} onValueChange={(value) => setRoles((current) => ({ ...current, [role.key]: value }))}>
-                        <SelectTrigger className="w-full min-w-0"><SelectValue placeholder="Choose model" /></SelectTrigger>
+                        <SelectTrigger size="sm" className="w-[min(58%,260px)] min-w-0"><SelectValue placeholder="Choose model" /></SelectTrigger>
                         <SelectContent className="w-[min(28rem,calc(100vw-2rem))]">
                           {roleDeployments.map((item) => {
                             const compatible = item.enabled && roleSupports(item, role.key);
@@ -364,29 +379,57 @@ export function SettingsDialog({
                 })}
               </div>
             </section>
-            <div className="sticky bottom-0 -mx-4 mt-6 border-t bg-popover/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:px-6">
+            <div className="sticky bottom-0 -mx-3 mt-3 border-t bg-popover/95 px-3 py-3 backdrop-blur sm:-mx-4 sm:px-4">
               <Button onClick={saveRoles} disabled={savingRoles} className="w-full">{savingRoles ? <Loader2 className="animate-spin" /> : <Check />} Save routing</Button>
             </div>
           </TabsContent>
 
-          <TabsContent value="appearance" className="min-h-0 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6">
-            <div className="grid grid-cols-3 gap-2">
-              {([["light", Sun, "Light"], ["dark", Moon, "Dark"], ["system", Settings, "System"]] as const).map(([value, Icon, label]) => (
-                <Button key={value} variant={theme === value ? "default" : "outline"} className="h-24 flex-col" onClick={() => setTheme(value)}>
-                  <Icon className="size-4" /> {label}
-                </Button>
-              ))}
+          <TabsContent value="appearance" className="min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 sm:px-4">
+            <div className="space-y-5">
+              <section>
+                <div className="mb-3 px-0.5"><h3 className="text-sm font-medium">Theme</h3><p className="mt-0.5 text-[10px] text-muted-foreground">Choose how the workbench looks on this device.</p></div>
+                <div className="grid grid-cols-3 gap-2">
+                  {([["light", Sun, "Light"], ["dark", Moon, "Dark"], ["system", Settings, "System"]] as const).map(([value, Icon, label]) => (
+                    <Button key={value} variant={theme === value ? "default" : "outline"} className="h-11 gap-2" onClick={() => setTheme(value)}>
+                      <Icon className="size-4" /> {label}
+                    </Button>
+                  ))}
+                </div>
+              </section>
+              <section>
+                <div className="mb-3 px-0.5"><h3 className="text-sm font-medium">Answer text</h3><p className="mt-0.5 text-[10px] text-muted-foreground">Changes model responses only, on this device.</p></div>
+                <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Answer text size">
+                  {([
+                    ["compact", "Compact", "text-sm"],
+                    ["comfortable", "Comfortable", "text-base"],
+                    ["large", "Large", "text-lg"],
+                  ] as const).map(([value, label, previewClass]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={answerTextSize === value}
+                      onClick={() => onAnswerTextSizeChange(value)}
+                      className={cn("flex h-16 flex-col items-center justify-center rounded-xl border text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground", answerTextSize === value && "border-primary/45 bg-primary/8 text-foreground ring-1 ring-primary/15")}
+                    >
+                      <span className={cn("font-conversation leading-none", previewClass)}>Aa</span>
+                      <span className="mt-1.5 text-[10px]">{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
             </div>
           </TabsContent>
 
-          <TabsContent value="data" className="min-h-0 space-y-3 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6">
+          <TabsContent value="data" className="min-h-0 space-y-2 overflow-y-auto overflow-x-hidden px-3 py-3 sm:px-4">
+            <div className="mb-3 px-0.5"><h3 className="text-sm font-medium">Local data</h3><p className="mt-0.5 text-[10px] text-muted-foreground">Export or restore the workbench without including your Azure key.</p></div>
             <a href="/api/backup"><Button variant="outline" className="w-full justify-start"><Download /> Download full backup</Button></a>
             <a href={`/api/export?projectId=${encodeURIComponent(config.defaultProjectId)}`}><Button variant="outline" className="w-full justify-start"><FileText /> Export project as Markdown</Button></a>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-muted">
               <Upload className="size-4" /> Restore backup
               <input type="file" accept=".zip" className="sr-only" onChange={(event) => void restoreBackup(event, onRefresh)} />
             </label>
-            <p className="text-xs leading-5 text-muted-foreground">Backups include durable local data and originals. The Azure key is excluded.</p>
+            <p className="px-0.5 text-[10px] leading-4 text-muted-foreground">Backups include durable data and original files. The Azure key is excluded.</p>
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -416,6 +459,17 @@ function DeploymentRow({
   const failed = capabilities.lastProbeOk === false || Boolean(capabilities.lastProbeError);
   const state = failed ? "Failed" : healthy ? "Healthy" : "Unprobed";
   const modelNameChanged = modelName.trim() !== (deployment.modelName ?? "");
+  const identity = `${deployment.name} ${deployment.modelName ?? ""}`;
+  const documentedThinking = /claude[- ]?(?:fable|sonnet|opus)?[- ]?5/i.test(identity) || /gpt[- ]?5\.6[- ]?luna/i.test(identity);
+  const thinking = capabilities.thinkingObserved === true ? "observed" : documentedThinking ? "supported" : capabilities.reasoningMetadata ?? capabilities.reasoning;
+  const cache = capabilities.cacheObserved === true ? "observed" : deployment.protocol === "anthropic" ? "supported" : "unknown";
+  const capabilityLabels = [
+    capabilities.streaming === true ? "Streaming" : null,
+    capabilities.structuredOutput === true ? "Structured" : null,
+    thinking === true || thinking === "observed" || thinking === "supported" ? "Thinking" : null,
+    supportsNativeVisualInput(deployment) ? "Vision" : null,
+    cache === "observed" ? "Cache seen" : cache === "supported" ? "Cache ready" : null,
+  ].filter((value): value is string => Boolean(value));
 
   async function probe() {
     setProbing(true);
@@ -428,42 +482,48 @@ function DeploymentRow({
   }
 
   return (
-    <div className={cn("min-w-0 rounded-xl border p-3", !deployment.enabled && "opacity-60")}>
-      <div className="flex min-w-0 flex-wrap items-start gap-3">
+    <div className={cn("min-w-0 rounded-xl border border-border/70 bg-card/35 p-3", !deployment.enabled && "opacity-60")}>
+      <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <span className={cn("size-2 shrink-0 rounded-full", failed ? "bg-destructive" : healthy ? "bg-emerald-600" : "bg-muted-foreground")} />
             <p className="truncate text-sm font-medium">{deployment.name}</p>
-            <Badge variant="outline" className="shrink-0 font-mono text-[9px]">{state}</Badge>
+            {state !== "Healthy" && <Badge variant="outline" className="shrink-0 font-mono text-[9px]">{state}</Badge>}
           </div>
-          <p className="mt-1 break-all font-mono text-[10px] leading-4 text-muted-foreground">
+          <p className="mt-1 truncate font-mono text-[10px] leading-4 text-muted-foreground">
             {deployment.protocol.toUpperCase()} · model {deployment.modelName || "not set"}
             {capabilities.lastProbeLatencyMs ? ` · ${capabilities.lastProbeLatencyMs}ms` : ""}
             {capabilities.lastProbeAt ? ` · ${formatProbeDate(String(capabilities.lastProbeAt))}` : ""}
             {capabilities.probeRequired ? " · probe required" : ""}
           </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <Capability label="Stream" value={capabilities.streaming} />
-            <Capability label="Structured" value={capabilities.structuredOutput} />
-            <Capability label="Reasoning" value={capabilities.reasoningMetadata ?? capabilities.reasoning} />
-            <Badge variant="secondary" className="font-mono text-[9px]">Context unknown</Badge>
+          <div className="mt-2 flex min-h-5 flex-wrap gap-1.5">
+            {capabilityLabels.slice(0, 3).map((label) => <Badge key={label} variant="secondary" className="font-mono text-[9px]">{label}</Badge>)}
+            {capabilityLabels.length > 3 && <Badge variant="outline" className="font-mono text-[9px]">+{capabilityLabels.length - 3}</Badge>}
+            {!capabilityLabels.length && <span className="text-[10px] text-muted-foreground">Capabilities not verified</span>}
           </div>
         </div>
-        <div className="flex w-full flex-wrap items-center justify-start gap-1.5 sm:w-auto sm:justify-end">
+        <div className="flex shrink-0 items-center gap-1">
           <Select value={deployment.protocol} onValueChange={(value) => void onProtocol(value as AdapterChoice)}>
-            <SelectTrigger size="sm" className="w-[118px] min-w-0"><SelectValue /></SelectTrigger>
+            <SelectTrigger size="sm" className="w-[108px] min-w-0" aria-label={`Adapter for ${deployment.name}`}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="auto">Auto</SelectItem>
               <SelectItem value="responses">Responses</SelectItem>
               <SelectItem value="chat">Chat</SelectItem>
               <SelectItem value="deepseek">DeepSeek</SelectItem>
+              <SelectItem value="anthropic">Anthropic / Claude</SelectItem>
             </SelectContent>
           </Select>
-          <Button type="button" size="icon-sm" variant="ghost" onClick={() => void probe()} disabled={probing} aria-label={`Probe ${deployment.name}`}>
-            {probing ? <Loader2 className="animate-spin" /> : <Activity />}
-          </Button>
-          <Button type="button" size="icon-sm" variant="ghost" onClick={() => setEditingName((value) => !value)} aria-label={`Edit ${deployment.name}`}><Pencil /></Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => void onToggle()}>{deployment.enabled ? "Disable" : "Enable"}</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" size="icon-sm" variant="ghost" aria-label={`More actions for ${deployment.name}`}><MoreHorizontal /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onSelect={() => void probe()} disabled={probing}>{probing ? <Loader2 className="animate-spin" /> : <Activity />} Probe capabilities</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setEditingName((value) => !value)}><Pencil /> Edit model name</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant={deployment.enabled ? "destructive" : "default"} onSelect={() => void onToggle()}>{deployment.enabled ? "Disable model" : "Enable model"}</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       {editingName && (
@@ -478,11 +538,6 @@ function DeploymentRow({
       {capabilities.lastProbeError && <p className="mt-2 break-words text-[10px] leading-4 text-destructive">{String(capabilities.lastProbeError)}</p>}
     </div>
   );
-}
-
-function Capability({ label, value }: { label: string; value: unknown }) {
-  const state = value === true ? "yes" : value === false ? "no" : "unknown";
-  return <Badge variant={state === "yes" ? "secondary" : "outline"} className={cn("font-mono text-[9px]", state === "no" && "text-muted-foreground line-through")}>{label}: {state}</Badge>;
 }
 
 function roleSupports(deployment: DeploymentRecord, role: RoleKey) {

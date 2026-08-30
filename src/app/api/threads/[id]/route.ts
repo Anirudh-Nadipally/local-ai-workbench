@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiError, apiGuard } from "@/lib/api";
-import { deleteThread, getDeployment, getLatestReceipt, getThread, listMemoryCandidates, listMemories, listMessages, listRunSteps, listSynthesisRuns, updateThread } from "@/lib/repository";
+import { deleteThread, getDeployment, getLatestReceipt, getThread, listGenerations, listMemoryCandidates, listMemories, listMessages, listRunSteps, listSynthesisRuns, updateThread } from "@/lib/repository";
 
 const UpdateSchema = z.object({ title: z.string().min(1).max(120).optional(), summary: z.string().max(4_000).optional(), deploymentId: z.string().nullable().optional() });
 
@@ -9,7 +9,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     apiGuard(request); const { id } = await context.params; const thread = getThread(id);
     if (!thread) return apiError(new Error("Conversation not found."), 404);
     const runs = listSynthesisRuns(id);
-    return Response.json({ thread, messages: listMessages(id), memories: listMemories(thread.projectId, id), candidates: listMemoryCandidates(thread.projectId, id), receipt: getLatestReceipt(id) ?? null, runs: runs.map((run) => ({ ...run, steps: listRunSteps(run.id) })) });
+    return Response.json({ thread, messages: listMessages(id), memories: listMemories(thread.projectId, id), candidates: listMemoryCandidates(thread.projectId, id), generations: listGenerations(id), receipt: getLatestReceipt(id) ?? null, runs: runs.map((run) => ({ ...run, steps: listRunSteps(run.id) })) });
   } catch (error) { return apiError(error, 500); }
 }
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {

@@ -1,4 +1,5 @@
 import { getAzureModel } from "@/lib/azure";
+import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
 import { getModelRoles } from "@/lib/config";
 import { nowIso } from "@/lib/ids";
 import { getDeployment, listDeployments } from "@/lib/repository";
@@ -168,7 +169,21 @@ export function buildSynthesisRoutingSnapshot(): SynthesisRoutingSnapshot {
   };
 }
 
-export function reasoningProviderOptions(deployment: DeploymentRecord, effort: "none" | "low" | "medium" | "high") {
+export function reasoningProviderOptions(deployment: DeploymentRecord, effort: "none" | "low" | "medium" | "high"): SharedV3ProviderOptions | undefined {
+  if (deployment.protocol === "anthropic") {
+    const identity = `${deployment.name} ${deployment.modelName ?? ""}`;
+    const supportsAdaptiveThinking = /claude[- ]?(?:fable|sonnet|opus)?[- ]?5/i.test(identity);
+    return {
+      anthropic: {
+        cacheControl: { type: "ephemeral" },
+        ...(supportsAdaptiveThinking
+          ? effort === "none"
+            ? { thinking: { type: "disabled" } }
+            : { thinking: { type: "adaptive", display: "summarized" }, effort }
+          : {}),
+      },
+    };
+  }
   if (effort === "none" || deployment.capabilities.reasoningEffort !== true) return undefined;
   const identity = `${deployment.name} ${deployment.modelName ?? ""}`;
   // Flash-tier models on Foundry often accept chat but not Azure reasoning-effort knobs.

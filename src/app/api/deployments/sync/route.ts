@@ -14,10 +14,15 @@ export async function POST(request: Request) {
     const discovered = await discoverDeployments(config.endpoint, config.endpointKind, apiKey);
     for (const item of discovered) {
       const existing = getDeployment(item.name);
+      const identity = `${item.name} ${item.modelName ?? ""}`;
+      const claudeDeployment = /claude|anthropic/i.test(identity);
+      const lunaDeployment = /gpt[- ]?5\.6[- ]?luna/i.test(identity);
       upsertDeployment({
         name: item.name,
         modelName: item.modelName ?? undefined,
-        enabled: existing ? undefined : /deepseek|kimi/i.test(`${item.name} ${item.modelName ?? ""}`),
+        protocol: claudeDeployment && (!existing || existing.protocol === "auto") ? "anthropic" : lunaDeployment && (!existing || existing.protocol === "auto") ? "responses" : undefined,
+        capabilities: lunaDeployment ? { imageInput: true, vision: true, reasoning: true, reasoningEffort: true } : undefined,
+        enabled: existing ? undefined : /deepseek|kimi|claude|anthropic/i.test(identity) || lunaDeployment,
       });
     }
     return Response.json({ deployments: listDeployments(true), discovered: discovered.length });

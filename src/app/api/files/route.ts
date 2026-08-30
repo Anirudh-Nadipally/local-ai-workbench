@@ -36,7 +36,15 @@ export async function POST(request: Request) {
       const bytes = Buffer.from(await upload.arrayBuffer());
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const storedName = `${crypto.randomUUID()}${path.extname(originalName).toLowerCase()}`;
-      const created = createFile({ projectId, threadId, originalName, storedName, mimeType: upload.type || "application/octet-stream", sizeBytes: upload.size, sha256 });
+      const extension = path.extname(originalName).toLowerCase();
+      const inferredMimeType = extension === ".jpg" || extension === ".jpeg" ? "image/jpeg"
+        : extension === ".png" ? "image/png"
+          : extension === ".webp" ? "image/webp"
+            : extension === ".gif" ? "image/gif"
+              : extension === ".pdf" ? "application/pdf"
+                : "application/octet-stream";
+      const mimeType = upload.type || inferredMimeType;
+      const created = createFile({ projectId, threadId, originalName, storedName, mimeType, sizeBytes: upload.size, sha256 });
       if (!created.duplicate) {
         try {
           await fs.writeFile(path.join(UPLOADS_DIR, storedName), bytes, { mode: 0o600 });

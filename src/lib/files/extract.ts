@@ -5,7 +5,8 @@ import { parse } from "csv-parse/sync";
 import mammoth from "mammoth";
 import { chunkSections, estimateTokens, type ExtractedSection } from "@/lib/files/chunk";
 
-export const SUPPORTED_EXTENSIONS = new Set([".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".htm", ".csv", ".json", ".jsonl"]);
+export const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+export const SUPPORTED_EXTENSIONS = new Set([".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".htm", ".csv", ".json", ".jsonl", ...IMAGE_EXTENSIONS]);
 export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 export const MAX_BATCH_FILES = 10;
 
@@ -24,6 +25,15 @@ export function safeOriginalName(name: string) {
 
 export async function extractFile(filePath: string, originalName: string) {
   const extension = path.extname(originalName).toLowerCase();
+  if (IMAGE_EXTENSIONS.has(extension)) {
+    return {
+      sections: [] as ExtractedSection[],
+      chunks: [],
+      fullText: "",
+      tokenEstimate: 0,
+      summary: "Image ready for direct visual analysis.",
+    };
+  }
   const buffer = await fs.readFile(filePath);
   let sections: ExtractedSection[];
 

@@ -4,6 +4,7 @@ import type {
   DeploymentRecord,
   DeploymentProtocol,
   FileRecord,
+  GenerationRecord,
   MemoryCandidateRecord,
   MemoryRecord,
   MessageRecord,
@@ -58,18 +59,83 @@ export function createThread(projectId: string, title = "New conversation", depl
   return getThread(id)!;
 }
 
+export function branchThread(input: { sourceThreadId: string; throughMessageId: string; includeMessage?: boolean }) {
+  const database = db();
+  return database.transaction(() => {
+    const source = getThread(input.sourceThreadId);
+    if (!source) throw new Error("Source conversation not found.");
+    const sourceMessages = listMessages(source.id);
+    const branchIndex = sourceMessages.findIndex((message) => message.id === input.throughMessageId);
+    if (branchIndex < 0) throw new Error("Branch point not found in this conversation.");
+
+    const selectedMessages = sourceMessages.slice(0, branchIndex + (input.includeMessage === false ? 0 : 1));
+    const id = createId("thread");
+    const at = nowIso();
+    const suffix = " · branch";
+    const title = source.title.endsWith(suffix) ? source.title : `${source.title.slice(0, 120 - suffix.length)}${suffix}`;
+    database.prepare(`INSERT INTO threads
+      (id,project_id,parent_thread_id,branch_from_message_id,title,summary,deployment_id,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run(id, source.projectId, source.id, input.throughMessageId, title, source.summary, source.deploymentId, at, at);
+
+    const messageIds = new Map<string, string>();
+    const insertMessage = database.prepare(`INSERT INTO messages
+      (id,thread_id,role,content,status,attachments_json,created_at) VALUES (?,?,?,?,?,?,?)`);
+    for (const message of selectedMessages) {
+      const copiedId = createId("message");
+      messageIds.set(message.id, copiedId);
+      insertMessage.run(copiedId, id, message.role, message.content, message.status, JSON.stringify(message.attachments), message.createdAt);
+    }
+
+    const sourceGenerations = listGenerations(source.id);
+    const generationIds = new Map<string, string>();
+    for (const generation of sourceGenerations) {
+      if (generation.messageId && messageIds.has(generation.messageId)) generationIds.set(generation.id, createId("generation"));
+    }
+    for (const generation of sourceGenerations) {
+      const parentId = typeof generation.settings.parentGenerationId === "string" ? generation.settings.parentGenerationId : null;
+      if (parentId && generationIds.has(parentId)) generationIds.set(generation.id, createId("generation"));
+    }
+    const insertGeneration = database.prepare(`INSERT INTO generations
+      (id,message_id,thread_id,deployment_id,status,stage,settings_json,input_tokens,output_tokens,
+       uncached_input_tokens,cache_read_tokens,cache_write_tokens,thinking_tokens,cache_status,duration_ms,
+       finish_reason,error,provider_metadata_json,output_text,context_receipt_id,started_at,completed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    for (const generation of sourceGenerations) {
+      const copiedId = generationIds.get(generation.id);
+      if (!copiedId) continue;
+      const settings = { ...generation.settings };
+      if (typeof settings.parentGenerationId === "string" && generationIds.has(settings.parentGenerationId)) {
+        settings.parentGenerationId = generationIds.get(settings.parentGenerationId);
+      }
+      insertGeneration.run(
+        copiedId, generation.messageId ? messageIds.get(generation.messageId) ?? null : null, id,
+        generation.deploymentId, generation.status, generation.stage, JSON.stringify(settings), generation.inputTokens,
+        generation.outputTokens, generation.uncachedInputTokens, generation.cacheReadTokens, generation.cacheWriteTokens,
+        generation.thinkingTokens, generation.cacheStatus, generation.durationMs, generation.finishReason, generation.error,
+        JSON.stringify(generation.providerMetadata), generation.outputText, null, generation.startedAt, generation.completedAt,
+      );
+    }
+    return getThread(id)!;
+  })();
+}
+
 export function listThreads(projectId?: string, query?: string) {
   if (query?.trim()) {
     const fts = query.trim().replace(/["']/g, " ").split(/\s+/).filter(Boolean).map((part) => `"${part}"*`).join(" OR ");
     const rows = db().prepare(`SELECT DISTINCT t.* FROM threads t LEFT JOIN messages_fts f ON f.thread_id=t.id
-      WHERE (? IS NULL OR t.project_id=?) AND (t.title LIKE ? OR f.content MATCH ?) ORDER BY t.updated_at DESC LIMIT 100`)
+      WHERE t.deleted_at IS NULL AND (? IS NULL OR t.project_id=?) AND (t.title LIKE ? OR f.content MATCH ?) ORDER BY t.updated_at DESC LIMIT 100`)
       .all(projectId ?? null, projectId ?? null, `%${query}%`, fts) as Row[];
     return rows.map(mapThread);
   }
   const rows = projectId
-    ? db().prepare("SELECT * FROM threads WHERE project_id=? ORDER BY updated_at DESC").all(projectId)
-    : db().prepare("SELECT * FROM threads ORDER BY updated_at DESC").all();
+    ? db().prepare("SELECT * FROM threads WHERE project_id=? AND deleted_at IS NULL ORDER BY updated_at DESC").all(projectId)
+    : db().prepare("SELECT * FROM threads WHERE deleted_at IS NULL ORDER BY updated_at DESC").all();
   return (rows as Row[]).map(mapThread);
+}
+
+export function listTrashedThreads(projectId: string) {
+  return (db().prepare("SELECT * FROM threads WHERE project_id=? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC").all(projectId) as Row[]).map(mapThread);
 }
 
 export function getThread(id: string) {
@@ -86,6 +152,19 @@ export function updateThread(id: string, input: Partial<Pick<ThreadRecord, "titl
   return getThread(id);
 }
 
+export function setThreadsTrashed(ids: string[], projectId: string, trashed: boolean) {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (!uniqueIds.length) return 0;
+  const sqlite = db();
+  const placeholders = uniqueIds.map(() => "?").join(",");
+  return sqlite.transaction(() => {
+    const owned = Number((sqlite.prepare(`SELECT COUNT(*) AS count FROM threads WHERE project_id=? AND id IN (${placeholders})`).get(projectId, ...uniqueIds) as { count: number }).count);
+    if (owned !== uniqueIds.length) throw new Error("One or more conversations do not belong to this project.");
+    return sqlite.prepare(`UPDATE threads SET deleted_at=?,updated_at=? WHERE project_id=? AND id IN (${placeholders})`)
+      .run(trashed ? nowIso() : null, nowIso(), projectId, ...uniqueIds).changes;
+  })();
+}
+
 export function deleteThread(id: string) {
   const sqlite = db();
   return sqlite.transaction(() => {
@@ -97,16 +176,17 @@ export function deleteThread(id: string) {
   })();
 }
 
-export function saveMessage(input: { id?: string; threadId: string; role: MessageRecord["role"]; content: string; status?: string }) {
+export function saveMessage(input: { id?: string; threadId: string; role: MessageRecord["role"]; content: string; status?: string; attachments?: MessageRecord["attachments"] }) {
   const id = input.id ?? createId("message");
   const at = nowIso();
   const existing = getMessage(id);
   if (existing && (existing.threadId !== input.threadId || existing.role !== input.role)) {
     throw new Error("The message identifier is already used by another conversation.");
   }
-  db().prepare(`INSERT INTO messages (id,thread_id,role,content,status,created_at) VALUES (?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status`)
-    .run(id, input.threadId, input.role, input.content, input.status ?? "complete", at);
+  const attachments = input.attachments ?? existing?.attachments ?? [];
+  db().prepare(`INSERT INTO messages (id,thread_id,role,content,status,attachments_json,created_at) VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status,attachments_json=excluded.attachments_json`)
+    .run(id, input.threadId, input.role, input.content, input.status ?? "complete", JSON.stringify(attachments), at);
   const thread = getThread(input.threadId);
   if (thread) {
     const firstUser = db().prepare("SELECT content FROM messages WHERE thread_id=? AND role='user' ORDER BY created_at LIMIT 1").get(input.threadId) as { content?: string } | undefined;
@@ -118,13 +198,43 @@ export function saveMessage(input: { id?: string; threadId: string; role: Messag
   return getMessage(id)!;
 }
 
+export function editUserMessageAndTruncate(input: {
+  threadId: string;
+  messageId: string;
+  content: string;
+  attachments?: MessageRecord["attachments"];
+}) {
+  const content = input.content.trim();
+  if (!content) throw new Error("Write a message first.");
+  const database = db();
+  return database.transaction(() => {
+    const target = database.prepare("SELECT rowid,* FROM messages WHERE id=? AND thread_id=?")
+      .get(input.messageId, input.threadId) as (Row & { rowid: number }) | undefined;
+    if (!target) throw new Error("The message to edit was not found in this conversation.");
+    if (String(target.role) !== "user") throw new Error("Only user messages can be edited.");
+
+    // Editing rewrites the current timeline from this turn onward. The branch
+    // action is the separate, non-destructive way to preserve both paths.
+    database.prepare("DELETE FROM context_receipts WHERE thread_id=? AND created_at>=?")
+      .run(input.threadId, String(target.created_at));
+    database.prepare("DELETE FROM generations WHERE thread_id=? AND started_at>=?")
+      .run(input.threadId, String(target.created_at));
+    database.prepare("DELETE FROM messages WHERE thread_id=? AND rowid>?")
+      .run(input.threadId, target.rowid);
+    database.prepare("UPDATE messages SET content=?,status='complete',attachments_json=? WHERE id=? AND thread_id=?")
+      .run(content, JSON.stringify(input.attachments ?? json(target.attachments_json, [])), input.messageId, input.threadId);
+    database.prepare("UPDATE threads SET updated_at=? WHERE id=?").run(nowIso(), input.threadId);
+    return getMessage(input.messageId)!;
+  })();
+}
+
 export function getMessage(id: string) {
   const row = db().prepare("SELECT * FROM messages WHERE id=?").get(id) as Row | undefined;
   return row ? mapMessage(row) : null;
 }
 
 export function listMessages(threadId: string) {
-  return (db().prepare("SELECT * FROM messages WHERE thread_id=? ORDER BY created_at").all(threadId) as Row[]).map(mapMessage);
+  return (db().prepare("SELECT * FROM messages WHERE thread_id=? ORDER BY created_at,rowid").all(threadId) as Row[]).map(mapMessage);
 }
 
 export function upsertDeployment(input: { name: string; modelName?: string | null; protocol?: DeploymentProtocol; capabilities?: Record<string, unknown>; enabled?: boolean }) {
@@ -151,7 +261,7 @@ export function listDeployments(includeDisabled = false) {
   const rows = includeDisabled
     ? db().prepare("SELECT * FROM deployments ORDER BY enabled DESC,name").all()
     : db().prepare("SELECT * FROM deployments WHERE enabled=1 ORDER BY name").all();
-  return (rows as Row[]).map(mapDeployment);
+  return (rows as Row[]).map((row) => withObservedCapabilities(mapDeployment(row)));
 }
 
 export function updateDeploymentCapabilities(name: string, capabilities: Record<string, unknown>, protocol?: DeploymentProtocol) {
@@ -226,16 +336,16 @@ export function getFileChunks(fileId: string, limit = 1000) {
 export function searchFileChunks(fileIds: string[], query: string, limit = 12) {
   if (!fileIds.length) return [];
   const placeholders = fileIds.map(() => "?").join(",");
+  const firstChunks = () => db().prepare(`SELECT c.*,f.original_name FROM file_chunks c JOIN files f ON f.id=c.file_id WHERE c.file_id IN (${placeholders}) ORDER BY c.file_id,c.chunk_index LIMIT ?`)
+    .all(...fileIds, limit) as Row[];
   const clean = query.replace(/["']/g, " ").split(/\s+/).filter((part) => part.length > 2).slice(0, 12);
-  if (!clean.length) {
-    return db().prepare(`SELECT c.*,f.original_name FROM file_chunks c JOIN files f ON f.id=c.file_id WHERE c.file_id IN (${placeholders}) ORDER BY c.chunk_index LIMIT ?`)
-      .all(...fileIds, limit) as Row[];
-  }
+  if (!clean.length) return firstChunks();
   const fts = clean.map((part) => `"${part}"*`).join(" OR ");
-  return db().prepare(`SELECT c.*,f.original_name,bm25(file_chunks_fts) AS rank FROM file_chunks_fts
+  const matches = db().prepare(`SELECT c.*,f.original_name,bm25(file_chunks_fts) AS rank FROM file_chunks_fts
     JOIN file_chunks c ON c.id=file_chunks_fts.chunk_id JOIN files f ON f.id=c.file_id
     WHERE file_chunks_fts MATCH ? AND c.file_id IN (${placeholders}) ORDER BY rank LIMIT ?`)
     .all(fts, ...fileIds, limit) as Row[];
+  return matches.length ? matches : firstChunks();
 }
 
 export function listMemories(projectId: string, threadId?: string) {
@@ -243,6 +353,33 @@ export function listMemories(projectId: string, threadId?: string) {
     ? db().prepare("SELECT * FROM memories WHERE project_id=? AND status='accepted' AND (thread_id IS NULL OR thread_id=?) ORDER BY updated_at DESC").all(projectId, threadId)
     : db().prepare("SELECT * FROM memories WHERE project_id=? AND status='accepted' ORDER BY updated_at DESC").all(projectId);
   return (rows as Row[]).map(mapMemory);
+}
+
+export function getMemory(id: string) {
+  const row = db().prepare("SELECT * FROM memories WHERE id=?").get(id) as Row | undefined;
+  return row ? mapMemory(row) : null;
+}
+
+export function createMemory(input: {
+  projectId: string;
+  threadId?: string | null;
+  type: MemoryRecord["type"];
+  title: string;
+  content: string;
+  scope: string;
+  sensitivity?: MemoryRecord["sensitivity"];
+  confidence?: number;
+  explicit?: boolean;
+  evidence?: MemoryRecord["evidence"];
+}) {
+  const id = createId("memory");
+  const at = nowIso();
+  db().prepare(`INSERT INTO memories
+    (id,project_id,thread_id,type,title,content,scope,status,sensitivity,confidence,explicit,evidence_json,supersedes_id,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,'accepted',?,?,?,?,NULL,?,?)`)
+    .run(id, input.projectId, input.threadId ?? null, input.type, input.title.trim(), input.content.trim(), input.scope,
+      input.sensitivity ?? "normal", input.confidence ?? 1, input.explicit === false ? 0 : 1, JSON.stringify(input.evidence ?? []), at, at);
+  return getMemory(id)!;
 }
 
 export function listMemoryCandidates(projectId: string, threadId?: string) {
@@ -319,6 +456,10 @@ export function createContextReceipt(input: { threadId: string; memoryIds: strin
 
 export function getLatestReceipt(threadId: string) {
   return db().prepare("SELECT * FROM context_receipts WHERE thread_id=? ORDER BY created_at DESC LIMIT 1").get(threadId) as Row | undefined;
+}
+
+export function listGenerations(threadId: string) {
+  return (db().prepare("SELECT * FROM generations WHERE thread_id=? ORDER BY started_at").all(threadId) as Row[]).map(mapGeneration);
 }
 
 export function createJob(type: string, payload: Record<string, unknown>) {
@@ -437,13 +578,43 @@ export function listRunSteps(runId: string) {
 }
 
 function mapProject(row: Row): ProjectRecord { return { id: String(row.id), name: String(row.name), description: String(row.description), instructions: String(row.instructions), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
-function mapThread(row: Row): ThreadRecord { return { id: String(row.id), projectId: String(row.project_id), title: String(row.title), summary: String(row.summary), deploymentId: row.deployment_id ? String(row.deployment_id) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
-function mapMessage(row: Row): MessageRecord { return { id: String(row.id), threadId: String(row.thread_id), role: row.role as MessageRecord["role"], content: String(row.content), status: String(row.status), createdAt: String(row.created_at) }; }
+function mapThread(row: Row): ThreadRecord { return { id: String(row.id), projectId: String(row.project_id), parentThreadId: row.parent_thread_id ? String(row.parent_thread_id) : null, branchFromMessageId: row.branch_from_message_id ? String(row.branch_from_message_id) : null, title: String(row.title), summary: String(row.summary), deploymentId: row.deployment_id ? String(row.deployment_id) : null, deletedAt: row.deleted_at ? String(row.deleted_at) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
+function mapMessage(row: Row): MessageRecord { return { id: String(row.id), threadId: String(row.thread_id), role: row.role as MessageRecord["role"], content: String(row.content), status: String(row.status), attachments: json(row.attachments_json, []), createdAt: String(row.created_at) }; }
 function mapDeployment(row: Row): DeploymentRecord { return { id: String(row.id), name: String(row.name), modelName: row.model_name ? String(row.model_name) : null, protocol: row.protocol as DeploymentRecord["protocol"], capabilities: json(row.capabilities_json, {}), enabled: Boolean(row.enabled), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
 function mapFile(row: Row): FileRecord { return { id: String(row.id), projectId: String(row.project_id), threadId: row.thread_id ? String(row.thread_id) : null, originalName: String(row.original_name), storedName: String(row.stored_name), mimeType: String(row.mime_type), sizeBytes: Number(row.size_bytes), status: row.status as FileRecord["status"], error: row.error ? String(row.error) : null, summary: String(row.summary), sha256: String(row.sha256), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
 function mapMemory(row: Row): MemoryRecord { return { id: String(row.id), projectId: String(row.project_id), threadId: row.thread_id ? String(row.thread_id) : null, type: row.type as MemoryRecord["type"], title: String(row.title), content: String(row.content), scope: String(row.scope), status: row.status as MemoryRecord["status"], sensitivity: row.sensitivity as MemoryRecord["sensitivity"], confidence: Number(row.confidence), explicit: Boolean(row.explicit), evidence: json(row.evidence_json, []), supersedesId: row.supersedes_id ? String(row.supersedes_id) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
 function mapCandidate(row: Row): MemoryCandidateRecord { const memory = mapMemory({ ...row, supersedes_id: null, status: "accepted" }); return { ...memory, status: row.status as MemoryCandidateRecord["status"] }; }
+function mapGeneration(row: Row): GenerationRecord {
+  return {
+    id: String(row.id), messageId: row.message_id ? String(row.message_id) : null, threadId: String(row.thread_id),
+    deploymentId: String(row.deployment_id), status: row.status as GenerationRecord["status"], stage: String(row.stage || "response"),
+    settings: json(row.settings_json, {}), inputTokens: nullableNumber(row.input_tokens), outputTokens: nullableNumber(row.output_tokens),
+    uncachedInputTokens: nullableNumber(row.uncached_input_tokens), cacheReadTokens: nullableNumber(row.cache_read_tokens),
+    cacheWriteTokens: nullableNumber(row.cache_write_tokens), thinkingTokens: nullableNumber(row.thinking_tokens),
+    cacheStatus: row.cache_status ? String(row.cache_status) : null, durationMs: nullableNumber(row.duration_ms),
+    finishReason: row.finish_reason ? String(row.finish_reason) : null, error: row.error ? String(row.error) : null,
+    providerMetadata: json(row.provider_metadata_json, {}), outputText: String(row.output_text ?? ""), contextReceiptId: row.context_receipt_id ? String(row.context_receipt_id) : null,
+    startedAt: String(row.started_at), completedAt: row.completed_at ? String(row.completed_at) : null,
+  };
+}
 function mapRun(row: Row): SynthesisRunRecord { return { id: String(row.id), projectId: String(row.project_id), threadId: String(row.thread_id), question: String(row.question), status: row.status as SynthesisRunRecord["status"], branchDeployment: String(row.branch_deployment), criticDeployment: String(row.critic_deployment), synthesisDeployment: String(row.synthesis_deployment), routingSnapshot: parseRoutingSnapshot(row), maxBranches: Number(row.max_branches), refinementRounds: Number(row.refinement_rounds), fileIds: json(row.file_ids_json, []), output: String(row.output), error: row.error ? String(row.error) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
+
+function nullableNumber(value: unknown) { return value === null || value === undefined ? null : Number(value); }
+
+function withObservedCapabilities(deployment: DeploymentRecord): DeploymentRecord {
+  const evidence = db().prepare(`SELECT
+    MAX(CASE WHEN thinking_tokens > 0 THEN 1 ELSE 0 END) AS thinking_observed,
+    MAX(CASE WHEN cache_read_tokens > 0 OR cache_write_tokens > 0 THEN 1 ELSE 0 END) AS cache_observed
+    FROM generations WHERE deployment_id=?`).get(deployment.name) as Row | undefined;
+  return {
+    ...deployment,
+    capabilities: {
+      ...deployment.capabilities,
+      thinkingObserved: Boolean(evidence?.thinking_observed),
+      cacheObserved: Boolean(evidence?.cache_observed),
+    },
+  };
+}
 
 function parseRoutingSnapshot(row: Row): SynthesisRoutingSnapshot {
   const parsed = json<Partial<SynthesisRoutingSnapshot>>(row.routing_snapshot_json, {});

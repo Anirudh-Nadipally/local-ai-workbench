@@ -1,5 +1,5 @@
 export type EndpointKind = "foundry-project" | "azure-openai";
-export type DeploymentProtocol = "auto" | "responses" | "chat" | "deepseek";
+export type DeploymentProtocol = "auto" | "responses" | "chat" | "deepseek" | "anthropic";
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export const MODEL_ROLE_KEYS = [
@@ -77,11 +77,23 @@ export type ProjectRecord = {
 export type ThreadRecord = {
   id: string;
   projectId: string;
+  parentThreadId: string | null;
+  branchFromMessageId: string | null;
   title: string;
   summary: string;
   deploymentId: string | null;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type MessageAttachmentRecord = {
+  fileId: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  mode: "direct" | "prepare-text" | "prepare-visual";
+  preparationDeployment?: string;
 };
 
 export type MessageRecord = {
@@ -90,7 +102,33 @@ export type MessageRecord = {
   role: "user" | "assistant" | "system";
   content: string;
   status: string;
+  attachments: MessageAttachmentRecord[];
   createdAt: string;
+};
+
+export type GenerationRecord = {
+  id: string;
+  messageId: string | null;
+  threadId: string;
+  deploymentId: string;
+  status: "streaming" | "complete" | "failed";
+  stage: "response" | "attachment-preparation" | string;
+  settings: Record<string, unknown>;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  uncachedInputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  thinkingTokens: number | null;
+  cacheStatus: string | null;
+  durationMs: number | null;
+  finishReason: string | null;
+  error: string | null;
+  providerMetadata: Record<string, unknown>;
+  outputText: string;
+  contextReceiptId: string | null;
+  startedAt: string;
+  completedAt: string | null;
 };
 
 export type FileRecord = {

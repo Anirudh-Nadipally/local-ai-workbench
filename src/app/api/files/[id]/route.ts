@@ -7,6 +7,19 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     apiGuard(request); const { id } = await context.params; const file = getFile(id);
     if (!file) return apiError(new Error("File not found."), 404);
+    const url = new URL(request.url);
+    if (url.searchParams.get("content") === "1") {
+      if (!new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]).has(file.mimeType)) {
+        return apiError(new Error("Inline preview is unavailable for this file type."), 415);
+      }
+      const bytes = await fs.readFile(resolveStoredUploadPath(file.storedName));
+      return new Response(bytes, { headers: {
+        "Content-Type": file.mimeType || "application/octet-stream",
+        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.originalName)}`,
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+      } });
+    }
     return Response.json({ file, chunks: getFileChunks(id, 250) });
   } catch (error) { return apiError(error, 500); }
 }

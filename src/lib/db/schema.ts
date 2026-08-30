@@ -16,9 +16,12 @@ export const projects = sqliteTable("projects", {
 export const threads = sqliteTable("threads", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  parentThreadId: text("parent_thread_id"),
+  branchFromMessageId: text("branch_from_message_id"),
   title: text("title").notNull(),
   summary: text("summary").notNull().default(""),
   deploymentId: text("deployment_id"),
+  deletedAt: text("deleted_at"),
   ...timestamps,
 });
 
@@ -28,7 +31,33 @@ export const messages = sqliteTable("messages", {
   role: text("role").notNull(),
   content: text("content").notNull(),
   status: text("status").notNull().default("complete"),
+  attachmentsJson: text("attachments_json").notNull().default("[]"),
   createdAt: text("created_at").notNull(),
+});
+
+export const generations = sqliteTable("generations", {
+  id: text("id").primaryKey(),
+  messageId: text("message_id"),
+  threadId: text("thread_id").notNull(),
+  deploymentId: text("deployment_id").notNull(),
+  status: text("status").notNull(),
+  stage: text("stage").notNull().default("response"),
+  settingsJson: text("settings_json").notNull().default("{}"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  uncachedInputTokens: integer("uncached_input_tokens"),
+  cacheReadTokens: integer("cache_read_tokens"),
+  cacheWriteTokens: integer("cache_write_tokens"),
+  thinkingTokens: integer("thinking_tokens"),
+  cacheStatus: text("cache_status"),
+  durationMs: integer("duration_ms"),
+  finishReason: text("finish_reason"),
+  error: text("error"),
+  providerMetadataJson: text("provider_metadata_json").notNull().default("{}"),
+  outputText: text("output_text").notNull().default(""),
+  contextReceiptId: text("context_receipt_id"),
+  startedAt: text("started_at").notNull(),
+  completedAt: text("completed_at"),
 });
 
 export const deployments = sqliteTable("deployments", {

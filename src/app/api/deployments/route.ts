@@ -6,7 +6,7 @@ import { listDeployments, upsertDeployment } from "@/lib/repository";
 export const runtime = "nodejs";
 
 const DeploymentSchema = z.object({
-  name: z.string().trim().min(1), modelName: z.string().trim().nullable().optional(), protocol: z.enum(["auto", "responses", "chat", "deepseek"]).default("auto"), probe: z.boolean().default(false),
+  name: z.string().trim().min(1), modelName: z.string().trim().nullable().optional(), protocol: z.enum(["auto", "responses", "chat", "deepseek", "anthropic"]).default("auto"), probe: z.boolean().default(false),
 });
 
 export async function GET(request: Request) {

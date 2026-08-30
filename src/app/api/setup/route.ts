@@ -45,10 +45,12 @@ export async function POST(request: Request) {
     all.forEach((deployment) => {
       const existing = getDeployment(deployment.name);
       const manuallyRegistered = input.manualDeployments.some((name) => name.trim() === deployment.name);
+      const claudeDeployment = /claude|anthropic/i.test(`${deployment.name} ${deployment.modelName ?? ""}`);
       upsertDeployment({
         name: deployment.name,
         modelName: deployment.modelName ?? undefined,
-        enabled: existing ? undefined : (manuallyRegistered || /deepseek|kimi/i.test(`${deployment.name} ${deployment.modelName ?? ""}`)),
+        protocol: existing ? undefined : claudeDeployment ? "anthropic" : undefined,
+        enabled: existing ? undefined : (manuallyRegistered || /deepseek|kimi|claude|anthropic/i.test(`${deployment.name} ${deployment.modelName ?? ""}`)),
       });
     });
     const roles = applyModelRoleOverrides(defaultModelRolesForDeployments(all.map((deployment) => deployment.name)), input.roles);

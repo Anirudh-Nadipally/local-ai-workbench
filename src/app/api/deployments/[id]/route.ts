@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 const Schema = z.object({
   modelName: z.string().trim().nullable().optional(),
-  protocol: z.enum(["auto", "responses", "chat", "deepseek"]).optional(),
+  protocol: z.enum(["auto", "responses", "chat", "deepseek", "anthropic"]).optional(),
   enabled: z.boolean().optional(),
 }).refine((value) => Object.values(value).some((item) => item !== undefined), "Provide at least one deployment change.");
 

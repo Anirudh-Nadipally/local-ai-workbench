@@ -39,12 +39,14 @@ export function migrate(db = getSqlite()) {
     );
     CREATE TABLE IF NOT EXISTS threads (
       id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      parent_thread_id TEXT, branch_from_message_id TEXT,
       title TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', deployment_id TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
-      role TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'complete', created_at TEXT NOT NULL
+      role TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'complete',
+      attachments_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS deployments (
       id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, model_name TEXT, protocol TEXT NOT NULL DEFAULT 'responses',
@@ -84,9 +86,10 @@ export function migrate(db = getSqlite()) {
     END;
     CREATE TABLE IF NOT EXISTS generations (
       id TEXT PRIMARY KEY, message_id TEXT, thread_id TEXT NOT NULL, deployment_id TEXT NOT NULL,
-      status TEXT NOT NULL, settings_json TEXT NOT NULL DEFAULT '{}', input_tokens INTEGER,
-      output_tokens INTEGER, duration_ms INTEGER, finish_reason TEXT, error TEXT,
-      provider_metadata_json TEXT NOT NULL DEFAULT '{}', context_receipt_id TEXT,
+      status TEXT NOT NULL, stage TEXT NOT NULL DEFAULT 'response', settings_json TEXT NOT NULL DEFAULT '{}', input_tokens INTEGER,
+      output_tokens INTEGER, uncached_input_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER,
+      thinking_tokens INTEGER, cache_status TEXT, duration_ms INTEGER, finish_reason TEXT, error TEXT,
+      provider_metadata_json TEXT NOT NULL DEFAULT '{}', output_text TEXT NOT NULL DEFAULT '', context_receipt_id TEXT,
       started_at TEXT NOT NULL, completed_at TEXT
     );
     CREATE TABLE IF NOT EXISTS memories (
@@ -143,5 +146,74 @@ export function migrate(db = getSqlite()) {
   }
   if (!synthesisColumns.some((column) => column.name === "routing_snapshot_json")) {
     db.exec("ALTER TABLE synthesis_runs ADD COLUMN routing_snapshot_json TEXT NOT NULL DEFAULT '{}'");
+  }
+  const threadColumns = db.prepare("PRAGMA table_info(threads)").all() as Array<{ name: string }>;
+  if (!threadColumns.some((column) => column.name === "deleted_at")) {
+    db.exec("ALTER TABLE threads ADD COLUMN deleted_at TEXT");
+  }
+  if (!threadColumns.some((column) => column.name === "parent_thread_id")) {
+    db.exec("ALTER TABLE threads ADD COLUMN parent_thread_id TEXT");
+  }
+  if (!threadColumns.some((column) => column.name === "branch_from_message_id")) {
+    db.exec("ALTER TABLE threads ADD COLUMN branch_from_message_id TEXT");
+  }
+  const messageColumns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+  if (!messageColumns.some((column) => column.name === "attachments_json")) {
+    db.exec("ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'");
+  }
+  const generationColumns = db.prepare("PRAGMA table_info(generations)").all() as Array<{ name: string }>;
+  const generationMigrations = [
+    ["stage", "ALTER TABLE generations ADD COLUMN stage TEXT NOT NULL DEFAULT 'response'"],
+    ["uncached_input_tokens", "ALTER TABLE generations ADD COLUMN uncached_input_tokens INTEGER"],
+    ["cache_read_tokens", "ALTER TABLE generations ADD COLUMN cache_read_tokens INTEGER"],
+    ["cache_write_tokens", "ALTER TABLE generations ADD COLUMN cache_write_tokens INTEGER"],
+    ["thinking_tokens", "ALTER TABLE generations ADD COLUMN thinking_tokens INTEGER"],
+    ["cache_status", "ALTER TABLE generations ADD COLUMN cache_status TEXT"],
+    ["output_text", "ALTER TABLE generations ADD COLUMN output_text TEXT NOT NULL DEFAULT ''"],
+  ] as const;
+  for (const [column, statement] of generationMigrations) {
+    if (!generationColumns.some((item) => item.name === column)) db.exec(statement);
+  }
+  backfillHistoricalMessageAttachments(db);
+  db.exec(`UPDATE generations SET
+    uncached_input_tokens=COALESCE(uncached_input_tokens, json_extract(provider_metadata_json, '$.anthropic.usage.input_tokens')),
+    cache_read_tokens=COALESCE(cache_read_tokens, json_extract(provider_metadata_json, '$.anthropic.usage.cache_read_input_tokens')),
+    cache_write_tokens=COALESCE(cache_write_tokens, json_extract(provider_metadata_json, '$.anthropic.usage.cache_creation_input_tokens')),
+    thinking_tokens=COALESCE(thinking_tokens, json_extract(provider_metadata_json, '$.anthropic.usage.output_tokens_details.thinking_tokens')),
+    cache_status=COALESCE(cache_status, CASE
+      WHEN COALESCE(json_extract(provider_metadata_json, '$.anthropic.usage.cache_read_input_tokens'), 0) > 0 THEN 'hit'
+      WHEN COALESCE(json_extract(provider_metadata_json, '$.anthropic.usage.cache_creation_input_tokens'), 0) > 0 THEN 'written'
+      WHEN json_type(provider_metadata_json, '$.anthropic.usage') IS NOT NULL THEN 'not-reused'
+      ELSE NULL END)
+    WHERE json_valid(provider_metadata_json)`);
+}
+
+function backfillHistoricalMessageAttachments(db: Database.Database) {
+  const generations = db.prepare(`SELECT thread_id,settings_json,started_at FROM generations
+    WHERE stage='response' AND json_valid(settings_json)
+      AND json_array_length(json_extract(settings_json, '$.attachments')) > 0
+    ORDER BY started_at`).all() as Array<{ thread_id: string; settings_json: string; started_at: string }>;
+  const fileQuery = db.prepare("SELECT id,original_name,mime_type,size_bytes FROM files WHERE id=?");
+  const update = db.prepare(`UPDATE messages SET attachments_json=? WHERE id=(
+      SELECT id FROM messages WHERE thread_id=? AND role='user' AND created_at<=? ORDER BY created_at DESC LIMIT 1
+    ) AND attachments_json='[]'`);
+  for (const generation of generations) {
+    let selections: Array<{ fileId?: string; mode?: string; preparationDeployment?: string }> = [];
+    try { selections = JSON.parse(generation.settings_json).attachments ?? []; }
+    catch { continue; }
+    const attachments = selections.flatMap((selection) => {
+      if (!selection.fileId || !new Set(["direct", "prepare-text", "prepare-visual"]).has(selection.mode ?? "")) return [];
+      const file = fileQuery.get(selection.fileId) as { id: string; original_name: string; mime_type: string; size_bytes: number } | undefined;
+      if (!file) return [];
+      return [{
+        fileId: file.id,
+        originalName: file.original_name,
+        mimeType: file.mime_type,
+        sizeBytes: file.size_bytes,
+        mode: selection.mode,
+        ...(selection.preparationDeployment ? { preparationDeployment: selection.preparationDeployment } : {}),
+      }];
+    });
+    if (attachments.length) update.run(JSON.stringify(attachments), generation.thread_id, generation.started_at);
   }
 }

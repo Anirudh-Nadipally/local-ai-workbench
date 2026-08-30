@@ -34,6 +34,21 @@ export function getAzureBaseUrl(endpoint: string, kind: EndpointKind) {
   return withoutV1;
 }
 
+/**
+ * Azure Foundry exposes Claude through Anthropic's Messages API, which is a
+ * separate surface from the OpenAI-compatible endpoint used by other models.
+ * The saved connection is normally a Foundry project URL, so derive the
+ * resource-level Anthropic base URL from its origin.
+ */
+export function getAzureAnthropicBaseUrl(endpoint: string, kind: EndpointKind) {
+  const normalized = normalizeEndpoint(endpoint);
+  if (kind !== "foundry-project" || detectEndpointKind(normalized) !== kind) {
+    throw new Error("Azure Claude deployments require a Foundry services.ai.azure.com endpoint.");
+  }
+  const url = new URL(normalized);
+  return `${url.origin}/anthropic/v1`;
+}
+
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 export function assertLocalRequest(request: Request, mutation = false) {

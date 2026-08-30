@@ -322,16 +322,22 @@ export const MessageBranchPage = ({
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
+const streamdownControls = {
+  table: { copy: true, download: false, fullscreen: false },
+  code: { copy: true, download: false },
+  mermaid: { copy: false, download: false, fullscreen: false, panZoom: false },
+} satisfies NonNullable<MessageResponseProps["controls"]>;
 
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
+      {...props}
       className={cn(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
       plugins={streamdownPlugins}
-      {...props}
+      controls={streamdownControls}
     />
   ),
   (prevProps, nextProps) =>

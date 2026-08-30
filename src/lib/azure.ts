@@ -1,8 +1,9 @@
 import { createAzure } from "@ai-sdk/azure";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { Output, generateText, streamText } from "ai";
 import { z } from "zod";
 import { getApiKey, readConfig, redactSecrets } from "@/lib/config";
-import { detectEndpointKind, getAzureBaseUrl, normalizeEndpoint } from "@/lib/endpoint";
+import { detectEndpointKind, getAzureAnthropicBaseUrl, getAzureBaseUrl, normalizeEndpoint } from "@/lib/endpoint";
 import type { DeploymentProtocol, EndpointKind } from "@/lib/types";
 
 export function getAzureProvider() {
@@ -27,6 +28,18 @@ export function getAzureProvider() {
 export function getAzureModel(deployment: string, protocol: DeploymentProtocol = "responses") {
   if (!deployment) throw new Error("Choose an Azure deployment first.");
   if (protocol === "auto") throw new Error(`Probe ${deployment} before using it. Auto is not a runnable adapter.`);
+  if (protocol === "anthropic") {
+    const config = readConfig();
+    const apiKey = getApiKey();
+    if (!config.endpoint || !apiKey) throw new Error("Azure is not configured yet.");
+    const endpoint = normalizeEndpoint(config.endpoint);
+    const endpointKind = detectEndpointKind(endpoint);
+    return createAnthropic({
+      // @ai-sdk/anthropic appends `/messages`; Azure requires `/v1/messages`.
+      baseURL: getAzureAnthropicBaseUrl(endpoint, endpointKind),
+      apiKey,
+    }).messages(deployment);
+  }
   const provider = getAzureProvider();
   if (protocol === "deepseek") return provider.deepseek(deployment);
   return protocol === "chat" ? provider.chat(deployment) : provider(deployment);
@@ -37,6 +50,7 @@ export type ConcreteDeploymentProtocol = Exclude<DeploymentProtocol, "auto">;
 export function inferAdapterCandidates(deploymentName: string, modelName?: string | null, requestedProtocol: DeploymentProtocol = "auto"): ConcreteDeploymentProtocol[] {
   if (requestedProtocol !== "auto") return [requestedProtocol];
   const identity = `${deploymentName} ${modelName ?? ""}`;
+  if (/claude|anthropic/i.test(identity)) return ["anthropic"];
   if (/deepseek/i.test(identity)) return ["deepseek", "chat", "responses"];
   if (/kimi/i.test(identity)) return ["chat", "responses"];
   return ["responses", "chat"];
@@ -134,6 +148,32 @@ export async function probeAzureDeployment(
   }
 
   const streaming = await probeFlag(() => driver.stream(selected!), (value) => value.hadDelta && Boolean(value.text.trim()));
+  if (selected === "anthropic") {
+    return {
+      ok: true,
+      protocol: selected,
+      latencyMs,
+      errors,
+      capabilities: {
+        textGeneration: true,
+        streaming,
+        structuredOutput: false,
+        reasoning: true,
+        reasoningMetadata: false,
+        reasoningEffort: true,
+        imageInput: true,
+        vision: true,
+        contextWindow: null,
+        lastProbeOk: true,
+        lastProbeAt: at,
+        lastProbeLatencyMs: latencyMs,
+        lastProbeError: null,
+        adapter: selected,
+        adapterErrors: Object.keys(errors).length ? JSON.stringify(errors) : "",
+        probeRequired: false,
+      },
+    };
+  }
   const structuredOutput = await probeFlag(() => driver.structured(selected!), Boolean);
   const reasoning = await probeFlag(() => driver.reasoning(selected!, false), (value) => value.reasoning);
   const reasoningEffort = await probeFlag(() => driver.reasoning(selected!, true), () => true);
