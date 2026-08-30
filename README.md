@@ -19,7 +19,9 @@ Most chat clients treat history as memory and hide the context sent to a model. 
 - Streaming chat with Azure Foundry project endpoints and Azure OpenAI endpoints.
 - Capability-aware model registry with sync, manual registration, adapter selection, probing, enable/disable controls, and per-conversation model selection.
 - PDF, DOCX, TXT, Markdown, HTML, CSV, JSON, and JSONL extraction with local FTS5 search and provenance-aware chunks.
-- Attachment receipts showing the exact memories and file chunks selected for a generation.
+- Explicit attachment handling: send supported images and PDFs directly, include locally extracted source text, or prepare large/visual files with a selected deployment before the final request.
+- Attachment receipts showing the exact memories, file chunks, preparation mode, and generation telemetry used for a response.
+- Conversation editing and non-destructive branching, recoverable trash, and selective Markdown export for questions, answers, or individual messages.
 - Manual memory curation with accept, reject, edit, supersede, and delete workflows.
 - Bounded synthesis using parallel mapper, alternative, adversarial, and evidence lanes, followed by critic, optional refinement, and final synthesis.
 - Persistent projects, threads, generations, file jobs, synthesis runs, exports, and backup/restore.
@@ -114,7 +116,7 @@ npm run build
 npm run test:e2e
 ```
 
-The end-to-end suite uses an isolated temporary data directory and mocked Azure responses. It does not require or transmit real credentials.
+The end-to-end suite uses an isolated test-only data directory and mocked Azure responses. It does not require or transmit real credentials.
 
 ## Scope
 

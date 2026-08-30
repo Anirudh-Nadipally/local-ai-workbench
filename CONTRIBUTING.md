@@ -25,6 +25,7 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
+npm run test:e2e
 ```
 
 Use mocked credentials and generic endpoint names in fixtures, documentation, screenshots, and bug reports. Never paste production keys, local database contents, personal file paths, or conversation exports into an issue.
