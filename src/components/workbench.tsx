@@ -162,7 +162,9 @@ export function Workbench() {
 
   const transport = useMemo(() => new DefaultChatTransport<WorkbenchMessage>({
     api: "/api/chat",
-    prepareSendMessagesRequest: ({ id, messages, body }) => ({ body: { id, messages, ...chatRequestContextRef.current, ...body } }),
+    prepareSendMessagesRequest: ({ id, messages, body, trigger, messageId }) => ({
+      body: { id, messages, ...chatRequestContextRef.current, ...body, trigger, messageId },
+    }),
   }), []);
 
   const { messages, setMessages, sendMessage, regenerate, stop, status, error } = useChat<WorkbenchMessage>({ id: activeThreadId || "local-draft", transport });
@@ -657,10 +659,14 @@ export function Workbench() {
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}><SheetContent side="left" className="w-[292px] p-0"><SheetHeader className="sr-only"><SheetTitle>Navigation</SheetTitle></SheetHeader>{sidebar}</SheetContent></Sheet>
 
       <main className="workspace-surface relative flex w-0 min-w-0 flex-1 flex-col">
-        <header className="z-10 flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/82 px-3 backdrop-blur-xl sm:px-5">
+        <header className="z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border/75 bg-background/88 px-3 backdrop-blur-xl sm:px-5">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileSidebarOpen(true)} aria-label="Open navigation"><Menu /></Button>
-          <div className="min-w-0 flex-1"><p className="truncate text-[15px] font-medium tracking-[-0.01em]">{activeThread?.title || "New conversation"}</p><p className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">{activeThread?.parentThreadId && <><GitBranch className="size-3 shrink-0" /><span>Branch</span><span>·</span></>}{activeProject?.name} · private workspace</p></div>
-          <ModelSelector deployment={deployment} deployments={boot.deployments} onChange={updateThreadDeployment} disabled={streaming} compact />
+          <div className="min-w-0 flex-1"><p className="truncate font-conversation text-[17px] font-medium tracking-[-0.018em]">{activeThread?.title || "New conversation"}</p><p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-muted-foreground">{activeThread?.parentThreadId && <><GitBranch className="size-3 shrink-0" /><span>Branch</span><span>·</span></>}{activeProject?.name} · private workspace</p></div>
+          <div className="hidden min-w-0 items-center gap-1.5 rounded-full border border-border/65 bg-card/60 px-1.5 py-1 sm:flex">
+            <ModelSelector deployment={deployment} deployments={boot.deployments} onChange={updateThreadDeployment} disabled={streaming} compact />
+            <ModelCapabilityCue deployment={activeDeployment} />
+          </div>
+          <div className="sm:hidden"><ModelSelector deployment={deployment} deployments={boot.deployments} onChange={updateThreadDeployment} disabled={streaming} compact /></div>
           <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => setExportOpen(true)} disabled={!messages.length || streaming} aria-label="Export selected messages as Markdown"><Download /></Button></TooltipTrigger><TooltipContent>Export messages</TooltipContent></Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -669,7 +675,7 @@ export function Workbench() {
                 size="icon"
                 className="relative"
                 onClick={() => setContextOpen((open) => !open)}
-                aria-label={contextBadgeVisible ? `Toggle context (${contextAttentionCount} item${contextAttentionCount === 1 ? "" : "s"} need attention)` : "Toggle context"}
+                aria-label={contextBadgeVisible ? `Toggle evidence (${contextAttentionCount} item${contextAttentionCount === 1 ? "" : "s"} need attention)` : "Toggle evidence"}
               >
                 <PanelRight />
                 {contextBadgeVisible && (
@@ -681,14 +687,14 @@ export function Workbench() {
             </TooltipTrigger>
             <TooltipContent>
               {contextBadgeVisible
-                ? `Context · ${selectedFileIds.length ? `${selectedFileIds.length} file${selectedFileIds.length === 1 ? "" : "s"} selected` : ""}${selectedFileIds.length && proposedMemoryCount ? " · " : ""}${proposedMemoryCount ? `${proposedMemoryCount} memory review${proposedMemoryCount === 1 ? "" : "s"}` : ""}`
-                : "Context receipt & files"}
+                ? `Evidence · ${selectedFileIds.length ? `${selectedFileIds.length} source${selectedFileIds.length === 1 ? "" : "s"} selected` : ""}${selectedFileIds.length && proposedMemoryCount ? " · " : ""}${proposedMemoryCount ? `${proposedMemoryCount} memory review${proposedMemoryCount === 1 ? "" : "s"}` : ""}`
+                : "Evidence, memory, and receipt"}
             </TooltipContent>
           </Tooltip>
         </header>
 
         <Conversation className="min-h-0">
-          <ConversationContent className="mx-auto w-full max-w-3xl gap-7 px-4 py-8 sm:px-7 lg:py-10">
+          <ConversationContent className="mx-auto w-full max-w-[54rem] gap-8 px-4 py-8 sm:px-8 lg:py-11">
             <span className="sr-only" aria-live="polite" aria-atomic="true">{liveAnnouncement}</span>
             {!messages.length ? (
               <ConversationEmptyState className="min-h-[44vh]" icon={<div className="brand-mark grid size-10 place-items-center rounded-2xl"><MessageSquareText className="size-4.5" /></div>} title="Begin with a question" description="Attach a source, ask a question, and choose how each file should be used.">
@@ -725,7 +731,7 @@ export function Workbench() {
         </Conversation>
 
         <div className="shrink-0 bg-gradient-to-t from-background via-background/98 to-transparent px-3 pb-3 pt-2.5 sm:px-5 sm:pb-4">
-          <form onSubmit={submit} className="composer-shell mx-auto max-w-[680px] overflow-hidden rounded-[1.25rem] border border-border/75 bg-card/98 shadow-[0_12px_32px_-26px_oklch(0.14_0.025_45/0.42)] backdrop-blur">
+          <form onSubmit={submit} className="composer-shell mx-auto max-w-[720px] overflow-hidden rounded-[1.25rem] border border-border/80 bg-card/98 shadow-[0_16px_38px_-28px_oklch(0.14_0.025_65/0.42)] backdrop-blur">
             <input ref={fileInputRef} type="file" multiple accept={ACCEPTED_FILES} className="sr-only" aria-label="Choose files or images" onChange={(event) => { void uploadFiles(event.target.files); event.target.value = ""; }} />
             {(uploadingAttachments.length > 0 || selectedFileIds.length > 0) && (
               <div className="border-b border-border/60 bg-muted/10 px-2.5 pb-2 pt-2.5">
@@ -757,19 +763,20 @@ export function Workbench() {
               />
             </div>
           </form>
+          <ComposerContextSummary files={boot.files} selectedFileIds={selectedFileIds} selections={attachmentSelections} selectedMemoryIds={selectedMemoryIds} deployment={activeDeployment} />
         </div>
       </main>
 
       <aside
         aria-hidden={!contextOpen}
-        aria-label="Context"
+        aria-label="Evidence"
         className={cn(
           "hidden shrink-0 overflow-hidden bg-background/92 opacity-0 transition-[width,opacity] duration-[175ms] ease-out motion-reduce:transition-none 2xl:block",
           contextOpen ? "w-[376px] border-l border-border/70 opacity-100" : "pointer-events-none w-0 border-l-0"
         )}
         inert={!contextOpen}
       ><div className="h-full w-[376px]">{context}</div></aside>
-      {!isWide && <Sheet open={contextOpen} onOpenChange={setContextOpen}><SheetContent side="right" className="w-[min(92vw,380px)] p-0"><SheetHeader className="sr-only"><SheetTitle>Context</SheetTitle></SheetHeader>{context}</SheetContent></Sheet>}
+      {!isWide && <Sheet open={contextOpen} onOpenChange={setContextOpen}><SheetContent side="right" className="w-[min(92vw,380px)] p-0"><SheetHeader className="sr-only"><SheetTitle>Evidence</SheetTitle></SheetHeader>{context}</SheetContent></Sheet>}
 
       <CommandPalette open={commandOpen} setOpen={setCommandOpen} boot={boot} onThread={setActiveThreadId} onProject={selectProject} onNew={createConversation} onSettings={() => setSettingsOpen(true)} />
       {settingsOpen && <SettingsDialog key={settingsKey} open={settingsOpen} setOpen={setSettingsOpen} config={boot.config} deployments={boot.deployments} routing={boot.modelRouting} answerTextSize={answerTextSize} onAnswerTextSizeChange={(size) => { setAnswerTextSize(size); window.localStorage.setItem(ANSWER_TEXT_SIZE_STORAGE_KEY, size); }} onRefresh={loadBootstrap} />}
@@ -879,6 +886,7 @@ function ModelSelector({
       <SelectContent align={compact ? "end" : "start"} className="w-[min(28rem,calc(100vw-2rem))]">
         {options.map((item) => {
           const runnable = canChatWithDeployment(item);
+          const vision = supportsNativeVisualInput(item);
           return (
           <SelectItem key={item.id} value={item.name} disabled={!runnable} textValue={item.name} className="min-w-0 items-start">
             <div className="min-w-0 max-w-full py-0.5">
@@ -886,7 +894,7 @@ function ModelSelector({
                 {item.name}{!item.enabled ? " · disabled" : item.protocol === "auto" ? " · probe required" : ""}
               </p>
               <p className="truncate text-[10px] text-muted-foreground">
-                {protocolLabel(item.protocol)}{item.modelName ? ` · ${item.modelName}` : ""}
+                {protocolLabel(item.protocol)}{vision ? " · Vision" : ""}{item.capabilities.reasoning ? " · Reasoning" : ""}{item.modelName ? ` · ${item.modelName}` : ""}
               </p>
             </div>
           </SelectItem>
@@ -894,6 +902,19 @@ function ModelSelector({
         {!options.length && <SelectItem value="__no-enabled-models" disabled>No enabled models</SelectItem>}
       </SelectContent>
     </Select>
+  );
+}
+
+function ModelCapabilityCue({ deployment }: { deployment?: DeploymentRecord }) {
+  if (!deployment) return null;
+  const vision = supportsNativeVisualInput(deployment);
+  const label = vision ? "Vision" : deployment.capabilities.reasoning ? "Reasoning" : "Text";
+  const detail = deployment.capabilities.lastProbeOk === false ? "needs attention" : protocolLabel(deployment.protocol);
+  return (
+    <span className={cn("hidden items-center gap-1 rounded-full px-2 py-1 font-mono text-[9px] sm:inline-flex", vision ? "bg-emerald-700/9 text-emerald-800 dark:text-emerald-300" : "bg-muted/70 text-muted-foreground")} title={`${label} · ${detail}`}>
+      {vision ? <Eye className="size-3" /> : <Gauge className="size-3" />}
+      {label}
+    </span>
   );
 }
 
@@ -915,11 +936,14 @@ function ChatMessage({ message, generation, preparations, isStreaming, isLatestU
 }) {
   const text = message.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n");
   const attachments = message.metadata?.attachments ?? [];
+  const hasRenderableAssistantContent = message.parts.some((part) => part.type !== "text" || part.text.trim());
   return (
     <Message from={message.role} className="scroll-mt-24">
-      <MessageContent className={message.role === "assistant" ? cn("w-full font-conversation [&_h1]:text-[1.7rem] [&_h1]:leading-tight [&_h2]:mt-7 [&_h2]:text-[1.35rem] [&_h2]:leading-snug [&_h3]:mt-5 [&_h3]:text-[1.08rem] [&_h3]:leading-snug", ANSWER_TEXT_SIZE_CLASSES[answerTextSize]) : "rounded-2xl rounded-br-md bg-secondary/75 px-4 py-2.5 text-[14px] leading-6 shadow-sm"}>
+      <MessageContent className={message.role === "assistant" ? cn("atelier-response w-full rounded-r-2xl px-5 py-4 font-conversation sm:px-6 sm:py-5 [&_h1]:text-[1.8rem] [&_h1]:leading-tight [&_h2]:mt-8 [&_h2]:text-[1.45rem] [&_h2]:leading-snug [&_h3]:mt-6 [&_h3]:text-[1.12rem] [&_h3]:leading-snug", ANSWER_TEXT_SIZE_CLASSES[answerTextSize]) : "rounded-2xl rounded-br-md border border-border/65 bg-card/90 px-4 py-3 text-[14px] leading-6 shadow-[0_1px_2px_oklch(0.2_0.02_65/0.04)]"}>
         {message.role === "user" && attachments.length > 0 && <SentMessageAttachments attachments={attachments} />}
-        {renderMessageParts(message, isStreaming)}
+        {message.role === "assistant" && !isStreaming && !hasRenderableAssistantContent
+          ? <p className="text-sm italic text-muted-foreground">No response content was returned.</p>
+          : renderMessageParts(message, isStreaming)}
       </MessageContent>
       <MessageActions
         aria-label={message.role === "user" ? "Message actions" : "Response actions"}
@@ -1219,9 +1243,9 @@ function ContextPanel({ files, deployments, currentDeployment, selectedFileIds, 
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-border/70 px-5 py-5"><p className="text-sm font-semibold tracking-[-0.01em]">Working context</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Review exactly what the next model call may receive.</p></div>
+      <div className="border-b border-border/70 bg-card/35 px-5 py-5"><p className="atelier-kicker text-[10px] font-medium text-muted-foreground">Evidence</p><p className="mt-1 font-conversation text-lg font-medium tracking-[-0.018em]">Sources, memory, and receipt</p><p className="mt-1 text-[13px] leading-5 text-muted-foreground">Review the context selected for your next request.</p></div>
       <Tabs defaultValue="files" className="flex min-h-0 flex-1 flex-col">
-        <TabsList className="mx-3 mt-3 grid grid-cols-3"><TabsTrigger value="files">Files</TabsTrigger><TabsTrigger value="memory">Memory</TabsTrigger><TabsTrigger value="receipt">Receipt</TabsTrigger></TabsList>
+        <TabsList className="mx-3 mt-3 grid grid-cols-3"><TabsTrigger value="files">Sources</TabsTrigger><TabsTrigger value="memory">Memory</TabsTrigger><TabsTrigger value="receipt">Receipt</TabsTrigger></TabsList>
         <TabsContent value="files" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
           <label className="mt-2 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed p-4 text-xs text-muted-foreground transition-colors hover:bg-muted"><Upload className="size-4" /> Add files or images<input type="file" multiple accept={ACCEPTED_FILES} className="sr-only" onChange={(event) => { void uploadFiles(event.target.files); event.target.value = ""; }} /></label>
           <div className="mt-4 space-y-2">
@@ -1263,11 +1287,11 @@ function ContextPanel({ files, deployments, currentDeployment, selectedFileIds, 
               );
             })}
           </div>
-          <p className="mt-4 text-[10px] leading-4 text-muted-foreground">Direct is always the default. Images and PDFs go to a compatible Azure model unchanged. Text is extracted without a local AI model; very large files use query-relevant excerpts so they fit the model context.</p>
+          <p className="mt-4 text-[11px] leading-5 text-muted-foreground">Direct is the default. Visual sources require a compatible selected model; prepared sources use the preparation choice shown on each item. Large text sources may use relevant excerpts to fit model context.</p>
         </TabsContent>
         <TabsContent value="memory" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
           <Button onClick={curateMemory} disabled={jobBusy || !threadData?.messages.length} variant="outline" className="mt-2 w-full">{jobBusy ? <Loader2 className="animate-spin" /> : <Brain />} {jobBusy ? "Curating…" : "Curate memory"}</Button>
-          <p className="mt-2 text-[10px] leading-4 text-muted-foreground">Nothing is remembered or sent automatically. Curating proposes candidates; only checked accepted memories go into the next call.</p>
+          <p className="mt-2 text-[11px] leading-5 text-muted-foreground">Nothing is remembered or selected automatically. Curating proposes candidates; checked accepted memories are included in the next request.</p>
           {!!threadData?.candidates.filter((item) => item.status === "proposed").length && <SectionLabel>Needs review</SectionLabel>}
           {threadData?.candidates.filter((item) => item.status === "proposed").map((candidate) => <div key={candidate.id} className="mt-2 rounded-lg border bg-card p-3"><div className="flex items-center gap-2"><Badge variant="secondary" className="font-mono text-[9px]">{candidate.type}</Badge><span className="ml-auto font-mono text-[9px] text-muted-foreground">{Math.round(candidate.confidence * 100)}%</span></div><p className="mt-2 text-xs font-medium">{candidate.title}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{candidate.content}</p><div className="mt-3 flex gap-1"><Button size="xs" onClick={() => void actOnMemory("accept", candidate.id)}><Check /> Accept</Button><Button size="xs" variant="ghost" onClick={() => void actOnMemory("reject", candidate.id)}><X /> Reject</Button></div></div>)}
           {!!threadData?.memories.length && <div className="mt-6 flex items-center gap-2"><SectionLabel className="mt-0">Accepted</SectionLabel><span className="ml-auto text-[9px] text-muted-foreground">~{estimateMemoryTokens(threadData.memories.filter((memory) => selectedMemoryIds.includes(memory.id)))} tokens selected</span><Button size="xs" variant="ghost" onClick={() => setSelectedMemoryIds(selectedMemoryIds.length === threadData.memories.length ? [] : threadData.memories.map((memory) => memory.id))}>{selectedMemoryIds.length === threadData.memories.length ? "Clear" : "Select all"}</Button></div>}
@@ -1285,6 +1309,28 @@ function ContextPanel({ files, deployments, currentDeployment, selectedFileIds, 
   );
 }
 
+function ComposerContextSummary({ files, selectedFileIds, selections, selectedMemoryIds, deployment }: {
+  files: FileRecord[]; selectedFileIds: string[]; selections: Record<string, AttachmentSelection>; selectedMemoryIds: string[]; deployment?: DeploymentRecord;
+}) {
+  const selectedFiles = files.filter((file) => selectedFileIds.includes(file.id));
+  const directFiles = selectedFiles.filter((file) => (selections[file.id]?.mode ?? "direct") === "direct");
+  const preparedFiles = selectedFiles.filter((file) => (selections[file.id]?.mode ?? "direct") !== "direct");
+  const directVisualFiles = directFiles.filter(isVisualAttachment);
+  const pieces = [
+    directFiles.length ? `${directFiles.length} direct source${directFiles.length === 1 ? "" : "s"}` : "",
+    preparedFiles.length ? `${preparedFiles.length} prepared source${preparedFiles.length === 1 ? "" : "s"}` : "",
+    selectedMemoryIds.length ? `${selectedMemoryIds.length} selected memor${selectedMemoryIds.length === 1 ? "y" : "ies"}` : "",
+  ].filter(Boolean);
+  const visualNeedsCompatibility = directVisualFiles.length > 0 && !supportsNativeVisualInput(deployment);
+
+  return (
+    <p className="mx-auto mt-2 flex max-w-[720px] items-center gap-1.5 px-1 text-[11px] leading-4 text-muted-foreground" aria-live="polite">
+      <span className={cn("size-1.5 shrink-0 rounded-full", visualNeedsCompatibility ? "bg-amber-600" : "bg-emerald-700/75")} aria-hidden />
+      {pieces.length ? <span>Next request: {pieces.join(" · ")}{visualNeedsCompatibility ? " · visual source needs a compatible model" : ""}</span> : <span>Next request: no additional sources or memories selected.</span>}
+    </p>
+  );
+}
+
 function AttachmentChip({ file, deployments, currentDeployment, selection, onSelection, onRemove }: {
   file: FileRecord; deployments: DeploymentRecord[]; currentDeployment?: DeploymentRecord; selection: AttachmentSelection;
   onSelection: (selection: AttachmentSelection) => void; onRemove: () => void;
@@ -1299,7 +1345,7 @@ function AttachmentChip({ file, deployments, currentDeployment, selection, onSel
         {isImageFile(file)
           ? <div role="img" aria-label={`Preview of ${file.originalName}`} className="size-9 shrink-0 rounded-lg border bg-cover bg-center" style={{ backgroundImage: `url(/api/files/${encodeURIComponent(file.id)}?content=1)` }} />
           : <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted"><FileText className="size-4 text-muted-foreground" /></div>}
-        <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium" title={file.originalName}>{file.originalName}</p><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{file.status === "ready" ? incompatible ? "Choose Claude or prepare first" : "Ready for your next message" : file.status === "failed" ? file.error || "Preparation failed" : "Preparing source…"}</p></div>
+        <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium" title={file.originalName}>{file.originalName}</p><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{file.status === "ready" ? incompatible ? "Choose an image-capable model or prepare first" : "Ready for your next message" : file.status === "failed" ? file.error || "Preparation failed" : "Preparing source…"}</p></div>
         <button type="button" onClick={onRemove} className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`Remove ${file.originalName}`}><X className="size-3" /></button>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-muted/60 p-0.5" aria-label={`How to use ${file.originalName}`}>
@@ -1307,7 +1353,7 @@ function AttachmentChip({ file, deployments, currentDeployment, selection, onSel
         {!visual ? (
           <button type="button" disabled={!textPreparation} title={textPreparation ? "Prepare a query-focused source packet with DeepSeek V4 Flash" : "V4 Flash is not enabled"} onClick={() => textPreparation && onSelection({ fileId: file.id, mode: "prepare-text", preparationDeployment: textPreparation.name })} className={cn("rounded-md px-2 py-1 text-[10px] transition-colors disabled:opacity-45", selection.mode === "prepare-text" ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}><Sparkles className="mr-1 inline size-3" />V4 Flash</button>
         ) : (
-          <button type="button" disabled={!visualPreparation} title={visualPreparation ? "Prepare a visual packet with GPT-5.6 Luna" : "Deploy GPT-5.6 Luna in Azure, then sync"} onClick={() => visualPreparation && onSelection({ fileId: file.id, mode: "prepare-visual", preparationDeployment: visualPreparation.name })} className={cn("rounded-md px-2 py-1 text-[10px] transition-colors disabled:opacity-45", selection.mode === "prepare-visual" ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}><Sparkles className="mr-1 inline size-3" />Luna</button>
+          <button type="button" disabled={!visualPreparation} title={visualPreparation ? `Prepare a visual packet with ${visualPreparation.name}` : "Enable an image-capable deployment, then sync"} onClick={() => visualPreparation && onSelection({ fileId: file.id, mode: "prepare-visual", preparationDeployment: visualPreparation.name })} className={cn("rounded-md px-2 py-1 text-[10px] transition-colors disabled:opacity-45", selection.mode === "prepare-visual" ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}><Sparkles className="mr-1 inline size-3" />Prepare</button>
         )}
       </div>
     </div>
@@ -1331,19 +1377,19 @@ function AttachmentModeMenu({ file, deployments, currentDeployment, selection, o
       <DropdownMenuTrigger asChild>
         <Button type="button" variant="ghost" size="xs" className={cn("h-6 max-w-40 gap-1 px-1.5 text-[9px] font-normal", compact && "max-w-32", selection.mode === "direct" && visual && !nativeCompatible && "text-amber-700 dark:text-amber-300")}>
           {selection.mode === "direct" ? <Eye className="size-3" /> : <Sparkles className="size-3" />}
-          <span className="truncate">{selection.mode === "direct" && visual && !nativeCompatible ? "Needs Claude/Luna" : attachmentModeLabel(selection.mode, selection.preparationDeployment)}</span>
+          <span className="truncate">{selection.mode === "direct" && visual && !nativeCompatible ? "Needs visual model" : attachmentModeLabel(selection.mode, selection.preparationDeployment)}</span>
           <ChevronDown className="size-2.5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72">
         <DropdownMenuItem onClick={() => onSelection({ fileId: file.id, mode: "direct" })}>
-          <Eye /><span><span className="block text-xs">Direct</span><span className="block text-[10px] text-muted-foreground">{visual ? "Original file to Claude or Luna" : "Extracted text; large sources use relevant excerpts"}</span></span>{selection.mode === "direct" && <Check className="ml-auto" />}
+          <Eye /><span><span className="block text-xs">Direct</span><span className="block text-[10px] text-muted-foreground">{visual ? "Original file to the selected image-capable model" : "Extracted text; large sources use relevant excerpts"}</span></span>{selection.mode === "direct" && <Check className="ml-auto" />}
         </DropdownMenuItem>
         {!isImageFile(file) && <DropdownMenuItem disabled={!textPreparation} onClick={() => textPreparation && onSelection({ fileId: file.id, mode: "prepare-text", preparationDeployment: textPreparation.name })}>
           <FileText /><span><span className="block text-xs">Prepare with V4 Flash</span><span className="block text-[10px] text-muted-foreground">{textPreparation ? "Query-focused working packet" : "Deploy or enable V4 Flash first"}</span></span>{selection.mode === "prepare-text" && <Check className="ml-auto" />}
         </DropdownMenuItem>}
         {visual && <DropdownMenuItem disabled={!visualPreparation} onClick={() => visualPreparation && onSelection({ fileId: file.id, mode: "prepare-visual", preparationDeployment: visualPreparation.name })}>
-          <FileImage /><span><span className="block text-xs">Prepare with GPT-5.6 Luna</span><span className="block text-[10px] text-muted-foreground">{visualPreparation ? "Azure visual transcription and source packet" : "Deploy in Azure, then Sync Azure"}</span></span>{selection.mode === "prepare-visual" && <Check className="ml-auto" />}
+          <FileImage /><span><span className="block text-xs">Prepare{visualPreparation ? ` with ${visualPreparation.name}` : " visually"}</span><span className="block text-[10px] text-muted-foreground">{visualPreparation ? "Azure visual transcription and source packet" : "Enable an image-capable deployment, then sync"}</span></span>{selection.mode === "prepare-visual" && <Check className="ml-auto" />}
         </DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1562,7 +1608,7 @@ function chatErrorHint(message: string) {
 function attachmentCompatibilityIssue(selectedFileIds: string[], selections: Record<string, AttachmentSelection>, files: FileRecord[], deployment?: DeploymentRecord) {
   const incompatible = selectedFileIds.map((id) => files.find((file) => file.id === id)).filter((file): file is FileRecord => Boolean(file))
     .find((file) => (selections[file.id]?.mode ?? "direct") === "direct" && isVisualAttachment(file) && !supportsNativeVisualInput(deployment));
-  return incompatible ? `${incompatible.originalName} needs an image-capable model. Choose Claude, sync your GPT-5.6 Luna deployment, or explicitly prepare it first.` : "";
+  return incompatible ? `${incompatible.originalName} needs an image-capable model. Choose one from the model menu, sync your deployments, or explicitly prepare it first.` : "";
 }
 function estimateMemoryTokens(memories: MemoryRecord[]) { return Math.ceil(memories.reduce((sum, memory) => sum + memory.title.length + memory.content.length + 24, 0) / 4); }
 function formatTokens(value: number | null | undefined) { return value === null || value === undefined ? "—" : value >= 1_000 ? `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K` : String(value); }
