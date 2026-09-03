@@ -1,6 +1,5 @@
 import { createId, nowIso } from "@/lib/ids";
 import { getSqlite } from "@/lib/db";
-import { deploymentIdentityChanged, getDeploymentProfile, reconcileDeploymentCapabilities } from "@/lib/deployment-profile";
 import type {
   DeploymentRecord,
   DeploymentProtocol,
@@ -177,32 +176,17 @@ export function deleteThread(id: string) {
   })();
 }
 
-export function saveMessage(
-  input: { id?: string; threadId: string; role: MessageRecord["role"]; content: string; status?: string; attachments?: MessageRecord["attachments"] },
-  options: { overwriteExisting?: boolean } = {},
-) {
+export function saveMessage(input: { id?: string; threadId: string; role: MessageRecord["role"]; content: string; status?: string; attachments?: MessageRecord["attachments"] }) {
   const id = input.id ?? createId("message");
   const at = nowIso();
   const existing = getMessage(id);
   if (existing && (existing.threadId !== input.threadId || existing.role !== input.role)) {
     throw new Error("The message identifier is already used by another conversation.");
   }
-  if (existing && options.overwriteExisting === false) {
-    throw new Error("The message identifier is already present in this conversation.");
-  }
   const attachments = input.attachments ?? existing?.attachments ?? [];
-  const sql = options.overwriteExisting === false
-    ? "INSERT INTO messages (id,thread_id,role,content,status,attachments_json,created_at) VALUES (?,?,?,?,?,?,?)"
-    : `INSERT INTO messages (id,thread_id,role,content,status,attachments_json,created_at) VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status,attachments_json=excluded.attachments_json`;
-  try {
-    db().prepare(sql).run(id, input.threadId, input.role, input.content, input.status ?? "complete", JSON.stringify(attachments), at);
-  } catch (error) {
-    if (options.overwriteExisting === false && String(error).includes("UNIQUE constraint failed")) {
-      throw new Error("The message identifier is already present in this conversation.");
-    }
-    throw error;
-  }
+  db().prepare(`INSERT INTO messages (id,thread_id,role,content,status,attachments_json,created_at) VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET content=excluded.content,status=excluded.status,attachments_json=excluded.attachments_json`)
+    .run(id, input.threadId, input.role, input.content, input.status ?? "complete", JSON.stringify(attachments), at);
   const thread = getThread(input.threadId);
   if (thread) {
     const firstUser = db().prepare("SELECT content FROM messages WHERE thread_id=? AND role='user' ORDER BY created_at LIMIT 1").get(input.threadId) as { content?: string } | undefined;
@@ -244,25 +228,6 @@ export function editUserMessageAndTruncate(input: {
   })();
 }
 
-export function truncateConversationAfterUserMessage(input: { threadId: string; messageId: string }) {
-  const database = db();
-  return database.transaction(() => {
-    const target = database.prepare("SELECT rowid,* FROM messages WHERE id=? AND thread_id=?")
-      .get(input.messageId, input.threadId) as (Row & { rowid: number }) | undefined;
-    if (!target) throw new Error("The message to regenerate was not found in this conversation.");
-    if (String(target.role) !== "user") throw new Error("Only user messages can anchor regeneration.");
-
-    database.prepare("DELETE FROM context_receipts WHERE thread_id=? AND created_at>=?")
-      .run(input.threadId, String(target.created_at));
-    database.prepare("DELETE FROM generations WHERE thread_id=? AND started_at>=?")
-      .run(input.threadId, String(target.created_at));
-    database.prepare("DELETE FROM messages WHERE thread_id=? AND rowid>?")
-      .run(input.threadId, target.rowid);
-    database.prepare("UPDATE threads SET updated_at=? WHERE id=?").run(nowIso(), input.threadId);
-    return getMessage(input.messageId)!;
-  })();
-}
-
 export function getMessage(id: string) {
   const row = db().prepare("SELECT * FROM messages WHERE id=?").get(id) as Row | undefined;
   return row ? mapMessage(row) : null;
@@ -278,17 +243,7 @@ export function upsertDeployment(input: { name: string; modelName?: string | nul
   const id = existing ? String(existing.id) : createId("deployment");
   const modelName = input.modelName === undefined ? (existing?.model_name ? String(existing.model_name) : null) : input.modelName;
   const protocol = input.protocol ?? (existing ? String(existing.protocol) as DeploymentProtocol : "auto");
-  const currentCapabilities = json<Record<string, boolean | number | string | null>>(existing?.capabilities_json, {});
-  const identityChanged = Boolean(existing) && deploymentIdentityChanged(
-    { modelName: existing?.model_name ? String(existing.model_name) : null, protocol: String(existing?.protocol) as DeploymentProtocol },
-    { modelName, protocol },
-  );
-  const capabilities = reconcileDeploymentCapabilities({
-    current: currentCapabilities,
-    incoming: input.capabilities,
-    profile: getDeploymentProfile(input.name, modelName),
-    identityChanged,
-  });
+  const capabilities = { ...json(existing?.capabilities_json, {}), ...(input.capabilities ?? {}) };
   const enabled = input.enabled === undefined ? (existing ? Boolean(existing.enabled) : true) : input.enabled;
   db().prepare(`INSERT INTO deployments (id,name,model_name,protocol,capabilities_json,enabled,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET model_name=excluded.model_name,
@@ -312,31 +267,23 @@ export function listDeployments(includeDisabled = false) {
 export function updateDeploymentCapabilities(name: string, capabilities: Record<string, unknown>, protocol?: DeploymentProtocol) {
   const current = getDeployment(name);
   if (!current) return null;
-  const nextProtocol = protocol ?? current.protocol;
-  const reconciled = reconcileDeploymentCapabilities({
-    current: current.capabilities,
-    incoming: capabilities,
-    profile: getDeploymentProfile(current.name, current.modelName),
-    identityChanged: deploymentIdentityChanged(current, { modelName: current.modelName, protocol: nextProtocol }),
-  });
   db().prepare("UPDATE deployments SET capabilities_json=?,protocol=?,updated_at=? WHERE name=?")
-    .run(JSON.stringify(reconciled), nextProtocol, nowIso(), name);
+    .run(JSON.stringify({ ...current.capabilities, ...capabilities }), protocol ?? current.protocol, nowIso(), name);
   return getDeployment(name);
 }
 
 export function updateDeployment(id: string, input: { modelName?: string | null; protocol?: DeploymentProtocol; enabled?: boolean }) {
   const current = getDeployment(id);
   if (!current) return null;
-  const modelName = input.modelName === undefined ? current.modelName : input.modelName;
-  const protocol = input.protocol ?? current.protocol;
-  const identityChanged = deploymentIdentityChanged(current, { modelName, protocol });
-  const capabilities = reconcileDeploymentCapabilities({
-    current: current.capabilities,
-    profile: getDeploymentProfile(current.name, modelName),
-    identityChanged,
-  });
+  const adapterChanged = input.protocol !== undefined && input.protocol !== current.protocol;
+  const modelNameChanged = input.modelName !== undefined && input.modelName !== current.modelName;
+  const capabilities = adapterChanged
+    ? { ...current.capabilities, lastProbeOk: null, lastProbeError: null, probeRequired: true }
+    : modelNameChanged
+      ? { ...current.capabilities, probeRequired: true }
+    : current.capabilities;
   db().prepare("UPDATE deployments SET model_name=?,protocol=?,enabled=?,capabilities_json=?,updated_at=? WHERE id=?")
-    .run(modelName, protocol,
+    .run(input.modelName === undefined ? current.modelName : input.modelName, input.protocol ?? current.protocol,
       input.enabled === undefined ? (current.enabled ? 1 : 0) : (input.enabled ? 1 : 0), JSON.stringify(capabilities), nowIso(), current.id);
   return getDeployment(current.id);
 }

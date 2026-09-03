@@ -273,7 +273,7 @@ export function SettingsDialog({
               <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
                 <div>
                   <h3 className="text-sm font-medium">Deployment registry</h3>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">Your Azure deployments, declared support, and probe results.</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">Your Azure deployments and verified capabilities.</p>
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button type="button" size="sm" variant="outline" onClick={syncDeployments} disabled={syncing}>
@@ -463,13 +463,11 @@ function DeploymentRow({
   const documentedThinking = /claude[- ]?(?:fable|sonnet|opus)?[- ]?5/i.test(identity) || /gpt[- ]?5\.6[- ]?luna/i.test(identity);
   const thinking = capabilities.thinkingObserved === true ? "observed" : documentedThinking ? "supported" : capabilities.reasoningMetadata ?? capabilities.reasoning;
   const cache = capabilities.cacheObserved === true ? "observed" : deployment.protocol === "anthropic" ? "supported" : "unknown";
-  const visualSupport = supportsNativeVisualInput(deployment);
-  const measuredVisualSupport = capabilities.imageInput === true || capabilities.vision === true;
   const capabilityLabels = [
-    visualSupport ? measuredVisualSupport ? "Vision verified" : "Vision declared" : null,
     capabilities.streaming === true ? "Streaming" : null,
     capabilities.structuredOutput === true ? "Structured" : null,
     thinking === true || thinking === "observed" || thinking === "supported" ? "Thinking" : null,
+    supportsNativeVisualInput(deployment) ? "Vision" : null,
     cache === "observed" ? "Cache seen" : cache === "supported" ? "Cache ready" : null,
   ].filter((value): value is string => Boolean(value));
 
@@ -499,7 +497,8 @@ function DeploymentRow({
             {capabilities.probeRequired ? " · probe required" : ""}
           </p>
           <div className="mt-2 flex min-h-5 flex-wrap gap-1.5">
-            {capabilityLabels.map((label) => <Badge key={label} variant="secondary" className="font-mono text-[9px]">{label}</Badge>)}
+            {capabilityLabels.slice(0, 3).map((label) => <Badge key={label} variant="secondary" className="font-mono text-[9px]">{label}</Badge>)}
+            {capabilityLabels.length > 3 && <Badge variant="outline" className="font-mono text-[9px]">+{capabilityLabels.length - 3}</Badge>}
             {!capabilityLabels.length && <span className="text-[10px] text-muted-foreground">Capabilities not verified</span>}
           </div>
         </div>

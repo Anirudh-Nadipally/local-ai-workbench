@@ -1,16 +1,15 @@
-import { generateText, streamText, type LanguageModelUsage, type UIMessage } from "ai";
+import { convertToModelMessages, generateText, streamText, type LanguageModelUsage, type UIMessage } from "ai";
 import { z } from "zod";
 import { apiError, apiGuard } from "@/lib/api";
-import { ATTACHMENT_MODES, isVisualAttachment, supportsNativeVisualInput, type AttachmentSelection } from "@/lib/attachments";
+import { ATTACHMENT_MODES, isVisualAttachment, type AttachmentSelection } from "@/lib/attachments";
 import { assembleContext } from "@/lib/context";
 import { createId, nowIso } from "@/lib/ids";
 import { getSqlite } from "@/lib/db";
 import { redactSecrets } from "@/lib/config";
-import { assertRegenerationTarget, authoritativeRegenerationInput, latestUserText, modelMessagesFromRecords, type ClientChatMessage } from "@/lib/chat-history";
 import { addAttachmentManifest, addNativeAttachments, nativeAttachmentPart, renderFileTextForPreparation, type NativeAttachmentPart } from "@/lib/files/model-input";
 import { assertFilesBelongToProject, assertMemoriesBelongToProjectThread, assertProjectThread } from "@/lib/integrity";
 import { reasoningProviderOptions, resolveAzureDeployment } from "@/lib/model-routing";
-import { editUserMessageAndTruncate, listMessages, saveMessage, truncateConversationAfterUserMessage } from "@/lib/repository";
+import { editUserMessageAndTruncate, saveMessage } from "@/lib/repository";
 import type { DeploymentRecord, FileRecord, MessageAttachmentRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -20,20 +19,12 @@ const AttachmentSchema = z.object({
   fileId: z.string(), mode: z.enum(ATTACHMENT_MODES), preparationDeployment: z.string().optional(),
 });
 
-const ClientMessageSchema = z.object({
-  id: z.string().min(1).max(256),
-  role: z.enum(["system", "user", "assistant"]),
-  parts: z.array(z.unknown()).max(200),
-}).passthrough();
-
 const ChatSchema = z.object({
   id: z.string().optional(), threadId: z.string(), projectId: z.string(), deployment: z.string(),
   fileIds: z.array(z.string()).max(10).default([]), attachments: z.array(AttachmentSchema).max(10).optional(),
-  memoryIds: z.array(z.string()).max(50).default([]), messages: z.array(ClientMessageSchema).min(1).max(500),
+  memoryIds: z.array(z.string()).max(50).default([]), messages: z.array(z.any()),
   reasoningEffort: z.enum(["none", "low", "medium", "high"]).default("medium"),
   editedMessageId: z.string().optional(),
-  trigger: z.enum(["submit-message", "regenerate-message"]).default("submit-message"),
-  messageId: z.string().min(1).max(256).optional(),
 });
 
 export async function POST(request: Request) {
@@ -43,21 +34,13 @@ export async function POST(request: Request) {
     apiGuard(request, true);
     const input = ChatSchema.parse(await request.json());
     const { project, thread } = assertProjectThread(input.projectId, input.threadId);
-    const uiMessages = input.messages as UIMessage[];
-    const submitted = latestUserText(input.messages as ClientChatMessage[]);
-    if (input.editedMessageId && input.trigger === "regenerate-message") {
-      throw new Error("A message cannot be edited and regenerated in the same request.");
-    }
-    let userText = submitted.text;
-    let attachments = normalizeAttachments(input.attachments, input.fileIds);
-    if (input.trigger === "regenerate-message") {
-      const storedUser = assertRegenerationTarget(listMessages(thread.id), submitted.id, input.messageId);
-      const authoritative = authoritativeRegenerationInput(storedUser, submitted.text, attachments);
-      userText = authoritative.text;
-      attachments = authoritative.attachments;
-    }
+    const attachments = normalizeAttachments(input.attachments, input.fileIds);
     const files = assertFilesBelongToProject(attachments.map((item) => item.fileId), project.id) as FileRecord[];
     assertMemoriesBelongToProjectThread(input.memoryIds, project.id, thread.id);
+    const uiMessages = input.messages as UIMessage[];
+    const last = uiMessages.at(-1);
+    const userText = last?.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim() ?? "";
+    if (!userText) throw new Error("Write a message first.");
     const fileById = new Map(files.map((file) => [file.id, file]));
     const messageAttachments = attachments.map((attachment): MessageAttachmentRecord => {
       const file = fileById.get(attachment.fileId);
@@ -71,16 +54,13 @@ export async function POST(request: Request) {
         ...(attachment.preparationDeployment ? { preparationDeployment: attachment.preparationDeployment } : {}),
       };
     });
-    if (input.editedMessageId) {
-      if (submitted.id !== input.editedMessageId) throw new Error("The edited message does not match the current conversation state.");
-      editUserMessageAndTruncate({ threadId: thread.id, messageId: input.editedMessageId, content: userText, attachments: messageAttachments });
-    } else if (input.trigger === "regenerate-message") {
-      truncateConversationAfterUserMessage({ threadId: thread.id, messageId: submitted.id });
-    } else {
-      saveMessage(
-        { id: submitted.id, threadId: thread.id, role: "user", content: userText, attachments: messageAttachments },
-        { overwriteExisting: false },
-      );
+    if (last?.role === "user") {
+      if (input.editedMessageId) {
+        if (last.id !== input.editedMessageId) throw new Error("The edited message does not match the current conversation state.");
+        editUserMessageAndTruncate({ threadId: thread.id, messageId: input.editedMessageId, content: userText, attachments: messageAttachments });
+      } else {
+        saveMessage({ id: last.id, threadId: thread.id, role: "user", content: userText, attachments: messageAttachments });
+      }
     }
 
     const resolved = resolveAzureDeployment(input.deployment, ["textGeneration", "streaming"]);
@@ -123,8 +103,7 @@ export async function POST(request: Request) {
       project.instructions ? `PROJECT INSTRUCTIONS\n${project.instructions}` : "",
       context.renderedContext,
     ].filter(Boolean).join("\n\n");
-    const trustedHistory = modelMessagesFromRecords(listMessages(thread.id));
-    const modelMessages = addNativeAttachments(addAttachmentManifest(trustedHistory, messageAttachments), nativeParts);
+    const modelMessages = addNativeAttachments(addAttachmentManifest(await convertToModelMessages(uiMessages), messageAttachments), nativeParts);
 
     const result = streamText({
       model: resolved.model,
@@ -161,8 +140,12 @@ async function prepareAttachment(input: { attachment: AttachmentSelection; file:
   const deploymentName = input.attachment.preparationDeployment?.trim();
   if (!deploymentName) throw new Error(`Choose a preparation model for ${input.file.originalName}.`);
   const resolved = resolveAzureDeployment(deploymentName, ["textGeneration"]);
-  if (input.attachment.mode === "prepare-visual" && !supportsNativeVisualInput(resolved.deployment)) {
-    throw new Error(`${resolved.deployment.name} does not support visual input. Choose a deployment with verified or declared image capability.`);
+  const identity = `${resolved.deployment.name} ${resolved.deployment.modelName ?? ""}`;
+  if (input.attachment.mode === "prepare-text" && !/deepseek[- ]?v4[- ]?flash/i.test(identity)) {
+    throw new Error("Text preparation must use the configured DeepSeek V4 Flash deployment.");
+  }
+  if (input.attachment.mode === "prepare-visual" && !/gpt[- ]?5\.6[- ]?luna/i.test(identity)) {
+    throw new Error("Visual preparation must use the configured GPT-5.6 Luna deployment.");
   }
 
   const id = createId("generation");

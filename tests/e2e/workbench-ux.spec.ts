@@ -108,7 +108,7 @@ async function mockConfiguredWorkbench(
 }
 
 async function selectExistingFile(page: Page, name: string) {
-  await page.getByRole("button", { name: "Toggle evidence" }).click();
+  await page.getByRole("button", { name: "Toggle context" }).click();
   await page.getByRole("checkbox", { name: `Select ${name}` }).check();
   await page.keyboard.press("Escape");
 }
@@ -127,9 +127,9 @@ test("visual attachments stay direct by default and expose explicit Azure prepar
   await selectExistingFile(page, "strategy-screen.png");
   await expect(main.getByText("strategy-screen.png", { exact: true })).toBeVisible();
   await expect(main.getByRole("button", { name: "Direct", exact: true })).toBeVisible();
-  await expect(main.getByRole("button", { name: "Prepare", exact: true })).toBeEnabled();
-  await main.getByRole("button", { name: "Prepare", exact: true }).click();
-  await expect(main.getByRole("button", { name: "Prepare", exact: true })).toHaveClass(/bg-background/);
+  await expect(main.getByRole("button", { name: "Luna", exact: true })).toBeEnabled();
+  await main.getByRole("button", { name: "Luna", exact: true }).click();
+  await expect(main.getByRole("button", { name: "Luna", exact: true })).toHaveClass(/bg-background/);
   const accepted = await page.locator('input[type="file"]').first().getAttribute("accept");
   expect(accepted).toContain(".png");
 });
@@ -246,7 +246,7 @@ test("memory is opt-in and generation receipts expose cache and thinking", async
   await page.getByText("strategy.json", { exact: true }).click();
   await expect(page.getByText("The decision remains unresolved.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Toggle evidence" }).click();
+  await page.getByRole("button", { name: "Toggle context" }).click();
   await page.getByRole("tab", { name: "Memory" }).click();
   await page.getByRole("checkbox", { name: "Use Concise outputs in the next message" }).check();
   await expect(page.getByText(/tokens selected/)).not.toHaveText("~0 tokens selected");
@@ -401,14 +401,6 @@ test("answer text size has three device-local choices", async ({ page }, testInf
   await expect(page.getByRole("radio", { name: "Large" })).toHaveAttribute("aria-checked", "true");
 });
 
-test("empty persisted responses are explained instead of rendered as blank cards", async ({ page }) => {
-  const assistant = { id: "answer-empty", threadId: "thread-1", role: "assistant", content: "", status: "complete", attachments: [], createdAt: "2026-06-24T00:01:00.000Z" };
-  await mockConfiguredWorkbench(page, [assistant]);
-  await page.goto("/");
-
-  await expect(page.getByText("No response content was returned.", { exact: true })).toBeVisible();
-});
-
 test("chat keeps visible activity from submit through provider failure", async ({ page }) => {
   await mockConfiguredWorkbench(page);
   await page.addInitScript(() => {
@@ -421,11 +413,11 @@ test("chat keeps visible activity from submit through provider failure", async (
         start(controller) {
           window.setTimeout(() => {
             controller.enqueue(encoder.encode('data: {"type":"reasoning-start","id":"reasoning-1"}\n\n'));
-          }, 1_500);
+          }, 450);
           window.setTimeout(() => {
             controller.enqueue(encoder.encode('data: {"type":"error","errorText":"Mock provider unavailable"}\n\n'));
             controller.close();
-          }, 3_000);
+          }, 1_250);
         },
       }), {
         headers: { "content-type": "text/event-stream", "x-vercel-ai-ui-message-stream": "v1" },

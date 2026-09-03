@@ -29,17 +29,17 @@
 
 :root {
   --font-instrument: -apple-system, BlinkMacSystemFont; --font-lora: Georgia; --font-plex-mono: "SFMono-Regular", Menlo;
-  --background: oklch(0.968 0.014 84); --foreground: oklch(0.205 0.014 65);
-  --card: oklch(0.99 0.006 85); --card-foreground: oklch(0.205 0.014 65);
-  --popover: oklch(0.992 0.005 85); --popover-foreground: oklch(0.205 0.014 65);
-  --primary: oklch(0.22 0.014 65); --primary-foreground: oklch(0.985 0.008 85);
-  --secondary: oklch(0.937 0.018 82); --secondary-foreground: oklch(0.275 0.018 65);
-  --muted: oklch(0.944 0.012 83); --muted-foreground: oklch(0.49 0.021 66);
-  --accent: oklch(0.915 0.032 145); --accent-foreground: oklch(0.25 0.038 145);
-  --destructive: oklch(0.56 0.17 27); --border: oklch(0.862 0.017 82);
-  --input: oklch(0.842 0.018 82); --ring: oklch(0.52 0.065 145);
-  --sidebar: oklch(0.952 0.018 84); --sidebar-foreground: oklch(0.275 0.018 65); --sidebar-border: oklch(0.86 0.018 82);
-  --surface-glow: oklch(0.88 0.04 145 / 0.19);
+  --background: oklch(0.975 0.012 79); --foreground: oklch(0.245 0.018 58);
+  --card: oklch(0.992 0.007 79); --card-foreground: oklch(0.245 0.018 58);
+  --popover: oklch(0.995 0.006 79); --popover-foreground: oklch(0.245 0.018 58);
+  --primary: oklch(0.39 0.055 49); --primary-foreground: oklch(0.98 0.01 78);
+  --secondary: oklch(0.945 0.017 74); --secondary-foreground: oklch(0.31 0.025 54);
+  --muted: oklch(0.947 0.012 75); --muted-foreground: oklch(0.505 0.025 57);
+  --accent: oklch(0.91 0.045 48); --accent-foreground: oklch(0.32 0.04 44);
+  --destructive: oklch(0.56 0.17 27); --border: oklch(0.865 0.018 72);
+  --input: oklch(0.84 0.02 72); --ring: oklch(0.57 0.105 46);
+  --sidebar: oklch(0.958 0.018 77); --sidebar-foreground: oklch(0.31 0.025 54); --sidebar-border: oklch(0.87 0.02 72);
+  --surface-glow: oklch(0.89 0.055 58 / 0.24);
 }
 
 .dark {
@@ -59,7 +59,7 @@
 @layer base {
   * { @apply border-border outline-ring/60; }
   html { @apply font-sans; }
-  body { @apply bg-background text-foreground; text-rendering: optimizeLegibility; font-feature-settings: "kern" 1, "liga" 1; }
+  body { @apply bg-background text-foreground; text-rendering: optimizeLegibility; }
   ::selection { background: color-mix(in oklab, var(--accent) 72%, transparent); }
   button, a, input, textarea, select { @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background; }
 }
@@ -76,20 +76,14 @@
   }
   .workspace-surface {
     background:
-      radial-gradient(circle at 54% -18%, var(--surface-glow), transparent 36rem),
-      linear-gradient(90deg, color-mix(in oklab, var(--background) 97%, var(--card)), var(--background));
+      radial-gradient(circle at 50% -10%, var(--surface-glow), transparent 34rem),
+      color-mix(in oklab, var(--background) 92%, var(--card));
   }
   .composer-shell { transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
   .composer-shell:focus-within {
     border-color: color-mix(in oklab, var(--ring) 45%, var(--border));
     box-shadow: 0 22px 65px -30px oklch(0.18 0.04 45 / 0.56), 0 0 0 3px color-mix(in oklab, var(--ring) 10%, transparent);
   }
-  .atelier-response {
-    border-left: 3px solid color-mix(in oklab, var(--ring) 72%, var(--border));
-    background: color-mix(in oklab, var(--card) 94%, transparent);
-    box-shadow: 0 1px 2px oklch(0.2 0.02 65 / 0.035);
-  }
-  .atelier-kicker { letter-spacing: 0.14em; text-transform: uppercase; }
 }
 
 @supports (scrollbar-color: auto) {

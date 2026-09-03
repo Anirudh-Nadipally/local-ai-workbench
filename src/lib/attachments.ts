@@ -1,5 +1,4 @@
 import type { DeploymentRecord, FileRecord } from "@/lib/types";
-import { deploymentSupportsVisualInput, visualPreparationRank } from "@/lib/deployment-profile";
 
 export const ATTACHMENT_MODES = ["direct", "prepare-text", "prepare-visual"] as const;
 export type AttachmentMode = (typeof ATTACHMENT_MODES)[number];
@@ -30,7 +29,11 @@ export function isVisualAttachment(file: Pick<FileRecord, "originalName" | "mime
 }
 
 export function supportsNativeVisualInput(deployment: DeploymentRecord | undefined) {
-  return deploymentSupportsVisualInput(deployment);
+  if (!deployment || !deployment.enabled || deployment.protocol === "auto") return false;
+  if (deployment.capabilities.imageInput === true || deployment.capabilities.vision === true) return true;
+  const identity = `${deployment.name} ${deployment.modelName ?? ""}`.toLowerCase();
+  if (deployment.protocol === "anthropic" && /claude/.test(identity)) return true;
+  return deployment.protocol === "responses" && /gpt[- ]?5\.6[- ]?luna/.test(identity);
 }
 
 export function findTextPreparationDeployment(deployments: DeploymentRecord[]) {
@@ -38,9 +41,7 @@ export function findTextPreparationDeployment(deployments: DeploymentRecord[]) {
 }
 
 export function findVisualPreparationDeployment(deployments: DeploymentRecord[]) {
-  return deployments
-    .filter((deployment) => supportsNativeVisualInput(deployment))
-    .sort((left, right) => visualPreparationRank(left) - visualPreparationRank(right))[0];
+  return deployments.find((deployment) => deployment.enabled && /gpt[- ]?5\.6[- ]?luna/i.test(`${deployment.name} ${deployment.modelName ?? ""}`));
 }
 
 export function attachmentModeLabel(mode: AttachmentMode, deployment?: string) {

@@ -4,7 +4,6 @@ import { discoverDeployments } from "@/lib/azure";
 import { getApiKey, getSafeConfig, saveConnection } from "@/lib/config";
 import { detectEndpointKind, normalizeEndpoint } from "@/lib/endpoint";
 import { applyModelRoleOverrides, defaultModelRolesForDeployments } from "@/lib/model-routing";
-import { deploymentModelNameChanged, getDeploymentProfile } from "@/lib/deployment-profile";
 import { getDeployment, listDeployments, upsertDeployment } from "@/lib/repository";
 import { MODEL_ROLE_KEYS } from "@/lib/types";
 
@@ -46,16 +45,12 @@ export async function POST(request: Request) {
     all.forEach((deployment) => {
       const existing = getDeployment(deployment.name);
       const manuallyRegistered = input.manualDeployments.some((name) => name.trim() === deployment.name);
-      const discoveredModelName = deployment.modelName?.trim() || null;
-      const profile = getDeploymentProfile(deployment.name, discoveredModelName ?? existing?.modelName);
-      const modelChanged = Boolean(existing && discoveredModelName && deploymentModelNameChanged(existing.modelName, discoveredModelName));
+      const claudeDeployment = /claude|anthropic/i.test(`${deployment.name} ${deployment.modelName ?? ""}`);
       upsertDeployment({
         name: deployment.name,
-        modelName: discoveredModelName ?? undefined,
-        protocol: !existing || existing.protocol === "auto" || modelChanged
-          ? profile.defaultProtocol ?? "auto"
-          : undefined,
-        enabled: existing ? undefined : (manuallyRegistered || profile.enabledByDefault),
+        modelName: deployment.modelName ?? undefined,
+        protocol: existing ? undefined : claudeDeployment ? "anthropic" : undefined,
+        enabled: existing ? undefined : (manuallyRegistered || /deepseek|kimi|claude|anthropic/i.test(`${deployment.name} ${deployment.modelName ?? ""}`)),
       });
     });
     const roles = applyModelRoleOverrides(defaultModelRolesForDeployments(all.map((deployment) => deployment.name)), input.roles);
