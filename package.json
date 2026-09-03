@@ -18,6 +18,7 @@
   "scripts": {
     "dev": "concurrently -k -n web,worker -c cyan,magenta \"next dev -H 127.0.0.1\" \"node --watch --import tsx src/worker/index.ts\"",
     "dev:web": "next dev -H 127.0.0.1",
+    "start:web": "next start -H 127.0.0.1",
     "worker": "node --import tsx src/worker/index.ts",
     "db:migrate": "node --import tsx scripts/migrate.ts",
     "connection:probe": "node --import tsx scripts/probe-connection.ts",
