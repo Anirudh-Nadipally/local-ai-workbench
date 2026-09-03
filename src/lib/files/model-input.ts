@@ -10,7 +10,7 @@ export type NativeAttachmentPart = ImagePart | FilePart;
 
 export async function nativeAttachmentPart(file: FileRecord, deployment: DeploymentRecord): Promise<NativeAttachmentPart> {
   if (!supportsNativeVisualInput(deployment)) {
-    throw new Error(`${deployment.name} is not configured for direct image or PDF input. Choose Claude, configure GPT-5.6 Luna, or explicitly prepare the attachment first.`);
+    throw new Error(`${deployment.name} is not configured for direct image or PDF input. Choose an image-capable deployment or explicitly prepare the attachment first.`);
   }
   const data = new Uint8Array(await fs.readFile(resolveStoredUploadPath(file.storedName)));
   const providerOptions = deployment.protocol === "anthropic"
@@ -69,7 +69,7 @@ export function renderFileTextForPreparation(file: FileRecord, query: string, ma
   const selected = totalTokens <= maximumTokens
     ? chunks
     : selectPreparationChunks(chunks, searchFileChunks([file.id], query, 14), maximumTokens);
-  if (!selected.length) throw new Error(`${file.originalName} has no locally extracted text. Use direct visual input or Prepare with Luna.`);
+  if (!selected.length) throw new Error(`${file.originalName} has no locally extracted text. Use direct visual input or prepare it with an image-capable deployment.`);
   const coverage = selected.length === chunks.length
     ? `[SOURCE COVERAGE: complete; ${chunks.length} of ${chunks.length} chunks; approximately ${totalTokens} tokens]`
     : `[SOURCE COVERAGE: partial hybrid selection; ${selected.length} of ${chunks.length} chunks; approximately ${selected.reduce((sum, chunk) => sum + Number(chunk.token_estimate), 0)} of ${totalTokens} source tokens. The beginning, ending, evenly distributed checkpoints, and query matches are represented. Do not imply unseen chunks were reviewed.]`;

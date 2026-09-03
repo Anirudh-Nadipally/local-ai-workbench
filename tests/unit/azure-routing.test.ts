@@ -1,7 +1,53 @@
 import { describe, expect, it } from "vitest";
-import { inferAdapterCandidates, probeAzureDeployment, type DeploymentProbeDriver } from "@/lib/azure";
+import {
+  inferAdapterCandidates,
+  normalizeFoundryResponsesRequestBody,
+  probeAzureDeployment,
+  type DeploymentProbeDriver,
+} from "@/lib/azure";
+
+describe("Foundry Responses request normalization", () => {
+  it("adds message discriminators only to role-bearing items with a missing or empty type", () => {
+    const body = JSON.stringify({
+      model: "gpt-5.6-sol",
+      input: [
+        { role: "developer", content: "System prompt" },
+        { role: "user", type: "", content: [{ type: "input_text", text: "Hello" }] },
+        { role: "assistant", type: null, content: [{ type: "output_text", text: "Hi" }] },
+        { type: "reasoning", id: "reasoning-1", summary: [] },
+        { type: "function_call", call_id: "call-1", name: "lookup", arguments: "{}" },
+      ],
+    });
+
+    const normalized = normalizeFoundryResponsesRequestBody("/v1/responses", body);
+    expect(typeof normalized).toBe("string");
+    const parsed = JSON.parse(normalized as string);
+
+    expect(parsed.input.slice(0, 3).map((item: { type: string }) => item.type)).toEqual([
+      "message",
+      "message",
+      "message",
+    ]);
+    expect(parsed.input[3]).toEqual({ type: "reasoning", id: "reasoning-1", summary: [] });
+    expect(parsed.input[4]).toEqual({ type: "function_call", call_id: "call-1", name: "lookup", arguments: "{}" });
+  });
+
+  it("leaves non-Responses, non-JSON, and non-string bodies untouched", () => {
+    const body = JSON.stringify({ input: [{ role: "user", content: "Hello" }] });
+    const bytes = new Uint8Array([1, 2, 3]);
+
+    expect(normalizeFoundryResponsesRequestBody("/v1/chat/completions", body)).toBe(body);
+    expect(normalizeFoundryResponsesRequestBody("/v1/responses", "not-json")).toBe("not-json");
+    expect(normalizeFoundryResponsesRequestBody("/v1/responses", bytes)).toBe(bytes);
+  });
+});
 
 describe("Azure adapter routing", () => {
+  it("uses Azure's model identity instead of a stale deployment-slot name", () => {
+    expect(inferAdapterCandidates("claude-old-slot", "gpt-5.6-sol", "auto")).toEqual(["responses", "chat"]);
+    expect(inferAdapterCandidates("old-luna-slot", "claude-sonnet-5", "auto")).toEqual(["anthropic"]);
+  });
+
   it("tries the DeepSeek adapter before generic chat surfaces", () => {
     expect(inferAdapterCandidates("DeepSeek-V4-Flash", "DeepSeek-V4-Flash", "auto")).toEqual([
       "deepseek",
@@ -45,6 +91,10 @@ describe("Azure adapter routing", () => {
         calls.push(`stream:${protocol}`);
         return { text: "streamed", hadDelta: true };
       },
+      async image(protocol) {
+        calls.push(`image:${protocol}`);
+        return true;
+      },
       async structured(protocol) {
         calls.push(`structured:${protocol}`);
         return true;
@@ -63,6 +113,8 @@ describe("Azure adapter routing", () => {
     expect(result.capabilities).toMatchObject({
       textGeneration: true,
       streaming: true,
+      imageInput: true,
+      vision: true,
       structuredOutput: true,
       reasoning: true,
       reasoningEffort: true,
@@ -74,13 +126,14 @@ describe("Azure adapter routing", () => {
       "generate:deepseek",
       "generate:chat",
       "stream:chat",
+      "image:chat",
       "structured:chat",
       "reasoning:chat:false",
       "reasoning:chat:true",
     ]);
   });
 
-  it("keeps the initial Claude probe to generation and streaming", async () => {
+  it("keeps the Claude probe to generation, streaming, and image input", async () => {
     const calls: string[] = [];
     const driver: DeploymentProbeDriver = {
       async generate(protocol) {
@@ -90,6 +143,10 @@ describe("Azure adapter routing", () => {
       async stream(protocol) {
         calls.push(`stream:${protocol}`);
         return { text: "STREAM_OK", hadDelta: true };
+      },
+      async image(protocol) {
+        calls.push(`image:${protocol}`);
+        return true;
       },
       async structured(protocol) {
         calls.push(`structured:${protocol}`);
@@ -103,7 +160,7 @@ describe("Azure adapter routing", () => {
 
     const result = await probeAzureDeployment("claude-sonnet", "anthropic", "Claude Sonnet", driver);
 
-    expect(calls).toEqual(["generate:anthropic", "stream:anthropic"]);
+    expect(calls).toEqual(["generate:anthropic", "stream:anthropic", "image:anthropic"]);
     expect(result.capabilities).toMatchObject({
       textGeneration: true,
       streaming: true,
@@ -123,6 +180,7 @@ describe("Azure adapter routing", () => {
         throw new Error(`${protocol} unavailable`);
       },
       async stream() { throw new Error("unreachable"); },
+      async image() { throw new Error("unreachable"); },
       async structured() { throw new Error("unreachable"); },
       async reasoning() { throw new Error("unreachable"); },
     };
@@ -134,11 +192,27 @@ describe("Azure adapter routing", () => {
     expect(result.capabilities).toMatchObject({
       textGeneration: false,
       streaming: false,
+      imageInput: false,
+      vision: false,
       structuredOutput: false,
       lastProbeOk: false,
       contextWindow: null,
     });
     expect(result.capabilities.lastProbeError).toContain("chat: chat unavailable");
     expect(result.capabilities.lastProbeError).toContain("responses: responses unavailable");
+  });
+
+  it("persists an explicit false when the selected adapter rejects image input", async () => {
+    const driver: DeploymentProbeDriver = {
+      async generate() { return { text: "OK" }; },
+      async stream() { return { text: "STREAM_OK", hadDelta: true }; },
+      async image() { throw new Error("image input is not supported"); },
+      async structured() { return true; },
+      async reasoning() { return { reasoning: false }; },
+    };
+
+    const result = await probeAzureDeployment("text-only", "responses", null, driver);
+
+    expect(result.capabilities).toMatchObject({ imageInput: false, vision: false });
   });
 });

@@ -17,12 +17,15 @@ describe("attachment routing", () => {
   it("allows native visual input only for configured visual deployments", () => {
     expect(supportsNativeVisualInput(deployment("claude-sonnet-5", "anthropic"))).toBe(true);
     expect(supportsNativeVisualInput(deployment("my-luna", "responses", "gpt-5.6-luna"))).toBe(true);
+    expect(supportsNativeVisualInput(deployment("my-sol", "responses", "gpt-5.6-sol"))).toBe(true);
+    expect(supportsNativeVisualInput(deployment("declared-vision", "responses", null))).toBe(false);
     expect(supportsNativeVisualInput(deployment("DeepSeek-V4-Flash", "deepseek"))).toBe(false);
   });
 
   it("finds the explicit preparation deployments by deployment or model identity", () => {
     const deployments = [
       deployment("text-prep", "deepseek", "DeepSeek-V4-Flash"),
+      deployment("visual-prep-sol", "responses", "gpt-5.6-sol"),
       deployment("visual-prep", "responses", "gpt-5.6-luna"),
     ];
     expect(findTextPreparationDeployment(deployments)?.name).toBe("text-prep");

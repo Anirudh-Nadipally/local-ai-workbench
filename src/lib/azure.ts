@@ -6,6 +6,45 @@ import { getApiKey, readConfig, redactSecrets } from "@/lib/config";
 import { detectEndpointKind, getAzureAnthropicBaseUrl, getAzureBaseUrl, normalizeEndpoint } from "@/lib/endpoint";
 import type { DeploymentProtocol, EndpointKind } from "@/lib/types";
 
+function isResponsesPath(pathname: string) {
+  return /(?:^|\/)responses\/?$/.test(pathname);
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Azure AI Foundry validates Responses input items more strictly than OpenAI's
+ * public endpoint. The AI SDK's convenient role/content form omits the item
+ * discriminator, so add it only at the Foundry Responses transport boundary.
+ */
+export function normalizeFoundryResponsesRequestBody(
+  pathname: string,
+  body: BodyInit | null | undefined,
+): BodyInit | null | undefined {
+  if (!isResponsesPath(pathname) || typeof body !== "string") return body;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return body;
+  }
+  if (!isJsonObject(parsed) || !Array.isArray(parsed.input)) return body;
+
+  let changed = false;
+  const input = parsed.input.map((item) => {
+    if (!isJsonObject(item) || typeof item.role !== "string" || !item.role.trim()) return item;
+    const missingType = item.type === null || item.type === undefined || (typeof item.type === "string" && !item.type.trim());
+    if (!missingType) return item;
+    changed = true;
+    return { ...item, type: "message" };
+  });
+
+  return changed ? JSON.stringify({ ...parsed, input }) : body;
+}
+
 export function getAzureProvider() {
   const config = readConfig();
   const apiKey = getApiKey();
@@ -19,7 +58,8 @@ export function getAzureProvider() {
         // Foundry's OpenAI-compatible `/v1` surface rejects Azure OpenAI's
         // legacy `api-version` query parameter.
         url.searchParams.delete("api-version");
-        return globalThis.fetch(url, init);
+        const body = normalizeFoundryResponsesRequestBody(url.pathname, init?.body);
+        return globalThis.fetch(url, body === init?.body ? init : { ...init, body });
       }
     : undefined;
   return createAzure({ baseURL: getAzureBaseUrl(endpoint, endpointKind), apiKey, fetch: foundryFetch });
@@ -49,7 +89,7 @@ export type ConcreteDeploymentProtocol = Exclude<DeploymentProtocol, "auto">;
 
 export function inferAdapterCandidates(deploymentName: string, modelName?: string | null, requestedProtocol: DeploymentProtocol = "auto"): ConcreteDeploymentProtocol[] {
   if (requestedProtocol !== "auto") return [requestedProtocol];
-  const identity = `${deploymentName} ${modelName ?? ""}`;
+  const identity = modelName?.trim() || deploymentName;
   if (/claude|anthropic/i.test(identity)) return ["anthropic"];
   if (/deepseek/i.test(identity)) return ["deepseek", "chat", "responses"];
   if (/kimi/i.test(identity)) return ["chat", "responses"];
@@ -86,6 +126,7 @@ export async function discoverDeployments(endpoint: string, endpointKind: Endpoi
 export type DeploymentProbeDriver = {
   generate(protocol: ConcreteDeploymentProtocol): Promise<{ text: string }>;
   stream(protocol: ConcreteDeploymentProtocol): Promise<{ text: string; hadDelta: boolean }>;
+  image(protocol: ConcreteDeploymentProtocol): Promise<boolean>;
   structured(protocol: ConcreteDeploymentProtocol): Promise<boolean>;
   reasoning(protocol: ConcreteDeploymentProtocol, withEffort: boolean): Promise<{ reasoning: boolean }>;
 };
@@ -133,6 +174,8 @@ export async function probeAzureDeployment(
       capabilities: {
         textGeneration: false,
         streaming: false,
+        imageInput: false,
+        vision: false,
         structuredOutput: false,
         reasoning: false,
         reasoningMetadata: false,
@@ -148,6 +191,7 @@ export async function probeAzureDeployment(
   }
 
   const streaming = await probeFlag(() => driver.stream(selected!), (value) => value.hadDelta && Boolean(value.text.trim()));
+  const imageInput = await probeFlag(() => driver.image(selected!), Boolean);
   if (selected === "anthropic") {
     return {
       ok: true,
@@ -161,8 +205,8 @@ export async function probeAzureDeployment(
         reasoning: true,
         reasoningMetadata: false,
         reasoningEffort: true,
-        imageInput: true,
-        vision: true,
+        imageInput,
+        vision: imageInput,
         contextWindow: null,
         lastProbeOk: true,
         lastProbeAt: at,
@@ -185,6 +229,8 @@ export async function probeAzureDeployment(
     capabilities: {
       textGeneration: true,
       streaming,
+      imageInput,
+      vision: imageInput,
       structuredOutput,
       reasoning,
       reasoningMetadata: reasoning,
@@ -205,7 +251,14 @@ function probeText(result: { text: string; reasoningText?: string | null }) {
   return (result.text || result.reasoningText || "").trim();
 }
 
-function createAzureProbeDriver(deployment: string): DeploymentProbeDriver {
+// A 16 x 16 solid-red PNG. The probe asks about image content instead of
+// requesting a fixed phrase that a text-only model could return by guessing.
+const VISION_PROBE_PNG = new Uint8Array(Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR42mP4z8BAEmIY1TCqYfhqAACQ+f8B8u7oVwAAAABJRU5ErkJggg==",
+  "base64",
+));
+
+export function createAzureProbeDriver(deployment: string): DeploymentProbeDriver {
   return {
     async generate(protocol) {
       const result = await generateText({
@@ -218,7 +271,8 @@ function createAzureProbeDriver(deployment: string): DeploymentProbeDriver {
     async stream(protocol) {
       const result = streamText({
         model: getAzureModel(deployment, protocol),
-        prompt: "Reply with exactly: STREAM_OK",
+        system: "You are a deployment capability probe. Follow the user's response-format request exactly.",
+        messages: [{ role: "user", content: "Reply with exactly: STREAM_OK" }],
         maxOutputTokens: 96,
       });
       let hadDelta = false;
@@ -227,6 +281,20 @@ function createAzureProbeDriver(deployment: string): DeploymentProbeDriver {
       }
       const text = probeText({ text: await result.text, reasoningText: await result.reasoningText });
       return { text, hadDelta };
+    },
+    async image(protocol) {
+      const result = await generateText({
+        model: getAzureModel(deployment, protocol),
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: "What single solid color fills this image? Reply with exactly one uppercase basic color word and nothing else." },
+            { type: "image", image: VISION_PROBE_PNG, mediaType: "image/png" },
+          ],
+        }],
+        maxOutputTokens: 96,
+      });
+      return probeText(result).toUpperCase() === "RED";
     },
     async structured(protocol) {
       const result = await generateText({

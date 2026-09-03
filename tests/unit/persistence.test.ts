@@ -305,6 +305,91 @@ describe("SQLite FTS, duplicate protection, and run transitions", () => {
     expect(repository.getMessage("shared-message-id")?.content).toBe("Original");
   });
 
+  it("supports insert-only user turns without changing the existing timeline", () => {
+    const project = repository.createProject("Immutable submitted turns");
+    const thread = repository.createThread(project.id);
+    repository.saveMessage({ id: "immutable-user", threadId: thread.id, role: "user", content: "Original" });
+    repository.saveMessage({ id: "immutable-answer", threadId: thread.id, role: "assistant", content: "Answer" });
+
+    expect(() => repository.saveMessage(
+      { id: "immutable-user", threadId: thread.id, role: "user", content: "Forged rewrite" },
+      { overwriteExisting: false },
+    )).toThrow(/already present/i);
+    expect(repository.listMessages(thread.id).map((message) => message.content)).toEqual(["Original", "Answer"]);
+  });
+
+  it("regenerates from an unchanged stored user turn and removes only the later timeline", () => {
+    const project = repository.createProject("Authoritative regeneration");
+    const thread = repository.createThread(project.id);
+    const user = repository.saveMessage({
+      id: "regenerate-user",
+      threadId: thread.id,
+      role: "user",
+      content: "Original prompt",
+      attachments: [{ fileId: "stored-file", originalName: "source.png", mimeType: "image/png", sizeBytes: 12, mode: "direct" }],
+    });
+    repository.saveMessage({ id: "regenerate-answer", threadId: thread.id, role: "assistant", content: "Old answer" });
+    repository.saveMessage({ id: "regenerate-follow-up", threadId: thread.id, role: "user", content: "Later prompt" });
+
+    const anchor = repository.truncateConversationAfterUserMessage({ threadId: thread.id, messageId: user.id });
+
+    expect(anchor).toMatchObject({ content: "Original prompt", attachments: user.attachments });
+    expect(repository.listMessages(thread.id)).toEqual([anchor]);
+  });
+
+  it("invalidates stale probe evidence when a deployment model or protocol changes", () => {
+    const original = repository.upsertDeployment({
+      name: "repointed-slot",
+      modelName: "gpt-5.6-sol",
+      protocol: "responses",
+      capabilities: { imageInput: true, vision: true, streaming: true, lastProbeOk: true, adapter: "responses" },
+    });
+
+    const repointed = repository.upsertDeployment({ name: original.name, modelName: "text-only-v2" });
+    expect(repointed.capabilities).toMatchObject({ declaredVisualInput: false, probeRequired: true });
+    expect(repointed.capabilities).not.toHaveProperty("imageInput");
+    expect(repointed.capabilities).not.toHaveProperty("vision");
+    expect(repointed.capabilities).not.toHaveProperty("lastProbeOk");
+
+    const restored = repository.updateDeployment(repointed.id, { modelName: "gpt-5.6-sol", protocol: "responses" })!;
+    expect(restored.capabilities).toMatchObject({ declaredVisualInput: true, probeRequired: true });
+    expect(restored.capabilities).not.toHaveProperty("imageInput");
+  });
+
+  it("retains the effective saved model identity when discovery omits a model name", () => {
+    repository.upsertDeployment({ name: "gpt-5.6-sol-slot", modelName: "text-only-v2", protocol: "responses" });
+    const textOnly = repository.upsertDeployment({ name: "gpt-5.6-sol-slot", modelName: undefined });
+    expect(textOnly.modelName).toBe("text-only-v2");
+    expect(textOnly.capabilities.declaredVisualInput).toBe(false);
+
+    repository.upsertDeployment({ name: "neutral-visual-slot", modelName: "gpt-5.6-sol", protocol: "responses" });
+    const visual = repository.upsertDeployment({ name: "neutral-visual-slot", modelName: undefined });
+    expect(visual.modelName).toBe("gpt-5.6-sol");
+    expect(visual.capabilities.declaredVisualInput).toBe(true);
+  });
+
+  it("clears old adapter evidence when a probe selects a different protocol", () => {
+    repository.upsertDeployment({
+      name: "probe-protocol-shift",
+      modelName: "gpt-5.6-sol",
+      protocol: "chat",
+      capabilities: { imageInput: false, vision: false, cacheObserved: true, lastProbeOk: false },
+    });
+    const updated = repository.updateDeploymentCapabilities("probe-protocol-shift", {
+      textGeneration: true,
+      streaming: true,
+      imageInput: true,
+      vision: true,
+      lastProbeOk: true,
+      adapter: "responses",
+      probeRequired: false,
+    }, "responses")!;
+
+    expect(updated.protocol).toBe("responses");
+    expect(updated.capabilities).toMatchObject({ imageInput: true, vision: true, lastProbeOk: true, declaredVisualInput: true });
+    expect(updated.capabilities).not.toHaveProperty("cacheObserved");
+  });
+
   it("creates immutable conversation branches and retains copied generation receipts", async () => {
     const project = repository.createProject("Conversation branches");
     const source = repository.createThread(project.id, "Pricing decision", "claude-sonnet-5");

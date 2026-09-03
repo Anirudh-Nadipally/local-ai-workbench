@@ -62,7 +62,7 @@ Azure OpenAI endpoints ending in `/openai/v1` are also accepted.
 - The server binds to `127.0.0.1` and rejects non-loopback hosts and cross-origin mutation requests.
 - The API key is encrypted locally under `data/`, never placed in browser storage or SQLite, and redacted from application errors. The adjacent local encryption key protects against accidental disclosure; it is not a defense against another process or user that can already read your private `data/` directory.
 - `data/`, environment files, exports, test artifacts, and build outputs are gitignored.
-- Raw uploads stay local. Only selected extracted text can enter a model request.
+- Raw uploads stay local until you explicitly select them for a request. Text documents are sent as selected extracted context; images and PDFs can be sent as original binary input only when you choose Direct with a compatible deployment. The context receipt records what was included.
 - Backups exclude credentials.
 - No telemetry, authentication service, cloud database, autonomous tools, or unbounded agent loop is included.
 
