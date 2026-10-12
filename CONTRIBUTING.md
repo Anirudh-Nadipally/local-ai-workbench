@@ -1,42 +1,41 @@
 # Contributing
 
-Thank you for improving Local AI Workbench.
+For a substantial feature or architecture change, open an issue describing the problem and intended behavior before starting work.
 
-## Before opening a pull request
+## Run locally
 
-1. Open an issue for substantial product or architecture changes.
-2. Keep the local-first boundary intact: credentials, uploads, conversations, and runtime state must never become tracked files or browser-persisted secrets.
-3. Preserve provider capability checks. Do not silently discard unsupported reasoning, streaming, or structured-output settings.
-4. Keep memory writes human-reviewed and synthesis runs bounded.
-5. Add or update tests for behavior changes.
-
-## Local development
+Use Node.js 22.13 or later:
 
 ```bash
-npm install
-npm run db:migrate
+npm ci
 npm run dev
 ```
 
-Before submitting:
+This starts the web app and worker together. SQLite is initialized on first use; no separate migration command is needed for a new workspace.
+
+## Check a change
 
 ```bash
 npm run typecheck
 npm run lint
 npm test
 npm run build
-npm run test:e2e
+npx playwright install chromium
+npm run test:recovery
 ```
 
-Use mocked credentials and generic endpoint names in fixtures, documentation, screenshots, and bug reports. Never paste production keys, local database contents, personal file paths, or conversation exports into an issue.
+The recovery suite uses an isolated database and a synthetic model on port 3042. It also runs the desktop and mobile workflows. Ordinary tests and CI make no paid API requests. Add coverage when a change affects persistence, request context, provider options, or another behavior that could silently lose work.
+
+Keep these boundaries intact:
+
+- Credentials, uploads, conversations, and runtime state stay out of Git and screenshots. Use synthetic fixtures and generic endpoints.
+- Project brief changes require review. Files are sent only when selected as context.
+- Closing a view does not cancel work. Stop must be explicit, partial output must remain recoverable, and interrupted paid requests must not replay automatically.
+- Temporary chats stay out of saved history, search, backups, and project memory until Keep chat is chosen.
+- Provider capabilities are checked per deployment. Unsupported options should produce a useful error rather than silently disappear.
 
 ## Pull requests
 
-Keep changes focused and explain:
+Describe the user problem, the resulting behavior, and the checks you ran. Include any data-format or privacy implications. Use the [security policy](SECURITY.md) to report vulnerabilities privately.
 
-- the user problem;
-- the behavior before and after;
-- security or privacy implications;
-- the checks you ran.
-
-By contributing, you agree that your work is licensed under the MIT License.
+Contributions are licensed under the [MIT License](LICENSE).

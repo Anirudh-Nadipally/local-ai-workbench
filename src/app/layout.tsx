@@ -1,17 +1,22 @@
 import type { Metadata } from "next";
-import { Providers } from "@/components/providers";
+import { Shell } from "@/components/shell";
+import { boot } from "@/server/workspace";
 import "./globals.css";
-
 export const metadata: Metadata = {
-  title: "Local AI Workbench",
-  description: "A private, local-first Azure AI workspace for conversations, files, reviewed memory, and bounded synthesis.",
-  icons: { icon: "/icon.svg" },
+  title: "Workbench — room to continue",
+  description: "Your local workspace for useful, portable context.",
 };
-
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export const dynamic = "force-dynamic";
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en" suppressHydrationWarning className="h-full antialiased">
-      <body className="min-h-full overflow-hidden"><Providers>{children}</Providers></body>
+    <html lang="en" suppressHydrationWarning>
+      <body>
+        <Shell initial={boot()}>{children}</Shell>
+      </body>
     </html>
   );
 }

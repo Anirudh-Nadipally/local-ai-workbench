@@ -34,6 +34,13 @@ yarn-error.log*
 .env*
 !.env.example
 data/
+*.db
+*.db-shm
+*.db-wal
+connection.json
+.key
+secrets.env
+.secrets-key
 exports/
 playwright-report/
 test-results/

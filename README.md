@@ -1,131 +1,103 @@
 # Local AI Workbench
 
-A local-first workspace for talking to Azure-deployed language models with your own files, reviewed memory, and bounded multi-model synthesis.
+Keep your conversations, documents, and project decisions in one local workspace. Choose a model for each task, review what context it receives, and carry the result into your next conversation.
 
-The web interface, SQLite database, uploads, exports, job state, and credentials stay on your Mac. Only the context you explicitly select is sent to Azure.
+Workbench runs on your computer and connects to your own Azure OpenAI or Azure AI Foundry deployments. Your workspace stays local; model requests go to the service you configure.
 
-## Why this exists
+![Workbench with projects and recent conversations](docs/home-desktop.png)
 
-Most chat clients treat history as memory and hide the context sent to a model. Local AI Workbench takes a different approach:
+## What you can do
 
-- conversations and source files remain locally owned;
-- memory is proposed by a model but accepted by a person;
-- every generation records its model, settings, selected files, and accepted memories;
-- multi-model work is bounded by an inspectable stage graph instead of an open-ended agent loop;
-- deployment names and adapters are configured from the interface, so the app is not tied to hard-coded model labels.
+- **Work across conversations.** Import pasted chats or text and Markdown exports. Review who said what, keep the original, and branch from an earlier turn when you want to try another direction.
+- **Choose the context.** Attach documents and inspect their extracted text. Send complete text, selected excerpts, or original images and PDFs when the model supports them. Adding a file to a project does not automatically send it to a model.
+- **Keep reviewed project decisions.** An approved project brief carries into new project chats. Proposed changes stay separate until you review and accept them.
+- **Use another model for the next step.** Pick the handoff or brief drafting model independently of the chat model. Keep useful answers as editable outputs with revision history.
+- **Take the work elsewhere.** Export a handoff, a finished result, or the conversation itself. Review the text, edit it, then copy or download Markdown, a source bundle, or print-friendly HTML.
 
-## Features
+## New in this update
 
-- Streaming chat with Azure Foundry project endpoints and Azure OpenAI endpoints.
-- Capability-aware model registry with sync, manual registration, adapter selection, probing, enable/disable controls, and per-conversation model selection.
-- PDF, DOCX, TXT, Markdown, HTML, CSV, JSON, and JSONL extraction with local FTS5 search and provenance-aware chunks.
-- Explicit attachment handling: send supported images and PDFs directly, include locally extracted source text, or prepare large/visual files with a selected deployment before the final request.
-- Attachment receipts showing the exact memories, file chunks, preparation mode, and generation telemetry used for a response.
-- Conversation editing and non-destructive branching, recoverable trash, and selective Markdown export for questions, answers, or individual messages.
-- Manual memory curation with accept, reject, edit, supersede, and delete workflows.
-- Bounded synthesis using parallel mapper, alternative, adversarial, and evidence lanes, followed by critic, optional refinement, and final synthesis.
-- Persistent projects, threads, generations, file jobs, synthesis runs, exports, and backup/restore.
-- Light, dark, and system themes; responsive navigation; keyboard focus states; and a global `Cmd+K` palette.
+### Drafts keep running when you leave the page
 
-## Requirements
+Closing a drafting window, clicking outside it, or opening another page no longer loses the task. Handoffs and project brief drafts run in the local worker and save their progress. Reopen the conversation or project to pick them up.
 
-- macOS for the double-click launcher. The npm workflow also works on other platforms supported by Node and `better-sqlite3`.
-- Node.js 20.9 or later.
-- An Azure Foundry project endpoint or Azure OpenAI endpoint, one API key, and at least one existing deployment name.
+**Stop drafting** cancels a task. If the app or worker stops unexpectedly, available partial text remains saved. Paid model requests are not retried automatically. The app and worker must stay running for a task to continue.
 
-The app registers deployments that already exist in Azure. It does not provision Azure resources.
+### Handoffs that make sense in a new conversation
 
-## Quick start
+Handoffs are written for the next task: what you are trying to do, the decisions already made, relevant context, open questions, and what should happen next. They do not require another AI to interpret Workbench's internal record IDs. You can edit the actual export before sharing it, and earlier exports remain available.
 
-On macOS, double-click `start-local.command`.
+![An editable handoff with its own model and effort selection](docs/handoff-desktop.png)
 
-Or run:
+### Temporary chats
+
+Start a **Temporary chat** from the home page or sidebar. It has no project memory and stays outside saved history, search, and backups.
+
+Temporary chats survive refresh and navigation. Workbench stores their messages and attachments locally until you choose **End & delete** or leave them inactive for 24 hours. Cleanup runs while the app is running, or when it next starts. Choose **Keep chat** to save the conversation and enable exports, saved outputs, and branching.
+
+This does not change the model provider's retention policy. Local deletion is not a guarantee of forensic disk erasure.
+
+![Temporary chat with Keep chat and End & delete controls](docs/temporary-chat-desktop.png)
+
+### Reasoning controls
+
+Configure supported controls in **Settings → Your deployments → Reasoning controls**, then choose effort beside the model picker. OpenAI reasoning effort and Anthropic adaptive or budget-based thinking are supported where the deployment accepts them. **Provider default** leaves the setting to the provider.
+
+Response activity shows elapsed request time and any reasoning the API returns. Some models return an answer without a reasoning summary.
+
+## Run it locally
+
+You need **Node.js 22.13 or later**, npm, and an Azure deployment with an API key to use model features. API usage is billed by your provider. Imports, local editing, and ordinary exports do not require a model call; AI drafting does.
 
 ```bash
-npm install
-npm run db:migrate
+git clone https://github.com/Anirudh-Nadipally/local-ai-workbench.git
+cd local-ai-workbench
+npm ci
+npm run build
+PORT=3025 npm start
+```
+
+Open [http://127.0.0.1:3025](http://127.0.0.1:3025). The start command runs the web app and worker together; keep the terminal open while using Workbench.
+
+On macOS, you can also open **Start Workbench.command** in the repository folder. It installs missing dependencies, builds the app if needed, and opens your browser.
+
+In **Settings**, enter your endpoint and API key, register a deployment using its deployment name and protocol, and run the text check. Image and PDF checks are separate. Configure reasoning controls only for settings that deployment supports. Capability checks make small, billable API requests.
+
+Current connections support Azure OpenAI and Azure AI Foundry, including Anthropic-protocol deployments through Foundry. Direct OpenAI and Anthropic accounts, arbitrary API endpoints, and local model servers are not connected in this version.
+
+**Coming from the earlier workbench?** This rebuild uses a different database format. Follow the [upgrade guide](docs/UPGRADING.md) to install it alongside the old version and import selected conversations. Do not point it at the old `data/` directory.
+
+## Storage and privacy
+
+The default `data/` directory contains the SQLite database, original uploads, and encrypted connection configuration. It is ignored by Git. The encryption key is stored on the same computer; protect the folder with your operating system's account and disk security.
+
+Requests contain the conversation history, the approved brief when enabled, and the sources you select. Workbench has no telemetry, cloud workspace account, or automatic model switching. It binds to loopback and is intended for one person on one computer.
+
+Backups exclude credentials and temporary chats, but contain saved conversations and files. Treat them as private. Restore requires an empty workspace, validates the archive, preserves that workspace's credentials, and does not restart imported jobs. Deleted saved conversations can be recovered from Trash; **End & delete** for temporary chats is permanent within the app.
+
+## Development and checks
+
+```bash
+npm ci
 npm run dev
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Enter your endpoint and API key, then discover or manually register your Azure deployments.
-
-Foundry project endpoints look like:
-
-```text
-https://example-resource.services.ai.azure.com/api/projects/example-project
-```
-
-Azure OpenAI endpoints ending in `/openai/v1` are also accepted.
-
-## Privacy and security model
-
-- The server binds to `127.0.0.1` and rejects non-loopback hosts and cross-origin mutation requests.
-- The API key is encrypted locally under `data/`, never placed in browser storage or SQLite, and redacted from application errors. The adjacent local encryption key protects against accidental disclosure; it is not a defense against another process or user that can already read your private `data/` directory.
-- `data/`, environment files, exports, test artifacts, and build outputs are gitignored.
-- Raw uploads stay local. Only selected extracted text can enter a model request.
-- Backups exclude credentials.
-- No telemetry, authentication service, cloud database, autonomous tools, or unbounded agent loop is included.
-
-Local-first does not mean a model request stays on the device. Review the context receipt before sending sensitive material and follow your Azure deployment's data-handling policy.
-
-Environment variables may replace the setup-screen credential:
-
-```bash
-AZURE_AI_ENDPOINT=
-AZURE_AI_API_KEY=
-```
-
-See [SECURITY.md](SECURITY.md) for the disclosure policy and security boundaries.
-
-## Model routing
-
-Open **Settings → Models** to synchronize or register deployments and probe their capabilities. Open **Settings → Routing** to assign deployments to chat, memory, synthesis branches, critic, refinement, and final synthesis.
-
-Supported adapters are:
-
-- Auto probe
-- Azure Responses
-- Chat Completions
-- DeepSeek chat compatibility
-
-Unsupported capability combinations are shown and blocked rather than silently downgraded. Each synthesis run stores an immutable routing snapshot.
-
-## Local data
-
-Runtime data is created under `data/`:
-
-```text
-data/
-├── config.json
-├── workbench.db
-├── secrets.env
-├── .secrets-key
-├── uploads/
-└── exports/
-```
-
-Do not commit this directory. Use the in-app backup and restore controls when moving between machines.
-
-## Development
+Development starts the web app and worker at [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
 ```bash
 npm run typecheck
 npm run lint
 npm test
 npm run build
-npm run test:e2e
+npx playwright install chromium
+npm run test:recovery
 ```
 
-The end-to-end suite uses an isolated test-only data directory and mocked Azure responses. It does not require or transmit real credentials.
+The recovery command starts an isolated workspace on port 3042. It tests drafting across dismissal, navigation, and reload, then runs the desktop and mobile workflows. These checks use synthetic data and make no paid model requests. CI runs the same checks.
 
-## Scope
+See [verification](docs/VERIFICATION.md), [architecture](docs/ARCHITECTURE.md), [contributing](CONTRIBUTING.md), and the [security policy](SECURITY.md). The [changelog](CHANGELOG.md) records the release changes.
 
-Version 1 intentionally excludes authentication, hosted deployment, cloud sync, OCR, voice, image generation, provider-native file storage, web browsing, external tools, and autonomous agent loops. These are extension points, not implicit privileges.
+## Current limits
 
-## Contributing
+Conversation import accepts pasted text and text/Markdown files; provider-specific JSON and ZIP chat archives are not supported yet. There is no global personal memory, automatic multi-model orchestration, or local OCR. Scanned PDFs can be sent as originals to a deployment that passes the PDF check.
 
-Issues and focused pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a change.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+Licensed under [MIT](LICENSE). Screenshots show synthetic test content.
